@@ -40,11 +40,11 @@ function convertToRwgpsBbox(
 async function searchBbox(
   client: RwgpsApiClient,
   bbox: GeoJSON.Feature<GeoJSON.Polygon>,
-  index: number,
-  total: number
+  cellIndex: number,
+  totalCells: number
 ) {
   const rwgpsBbox = convertToRwgpsBbox(bbox);
-  console.log(`Searching cell ${index + 1}/${total}: ${rwgpsBbox}`);
+  console.log(`Searching cell ${cellIndex + 1}/${totalCells}: ${rwgpsBbox}`);
 
   let allTrips: TripSummary[] = [];
   let offset = 0;
@@ -55,7 +55,7 @@ async function searchBbox(
   while (hasMorePages && pageCount < 20) {
     pageCount++;
     console.log(
-      `Cell ${index + 1}: Fetching page ${pageCount} (offset: ${offset})`
+      `Cell ${cellIndex + 1}: Fetching page ${pageCount} (offset: ${offset})`
     );
 
     const results = await client.exploreTrips(rwgpsBbox, {
@@ -74,7 +74,7 @@ async function searchBbox(
 
     if (hasMorePages) {
       console.log(
-        `Cell ${index + 1}: More results available, next page available`
+        `Cell ${cellIndex + 1}: More results available, next page available`
       );
     }
   }
@@ -91,13 +91,13 @@ async function searchBbox(
     allTrips.length > 0 ? cellTotalDistance / allTrips.length / 1000 : 0;
 
   console.log(
-    `Cell ${index + 1}: Found ${totalCount} trips, fetched ${
+    `Cell ${cellIndex + 1}: Found ${totalCount} trips, fetched ${
       allTrips.length
     }, avg distance: ${cellAvgDistance.toFixed(2)} km`
   );
 
   return {
-    cellIndex: index,
+    cellIndex: cellIndex,
     tripsCount: totalCount,
     totalDistance: cellTotalDistance,
     trips: allTrips,
