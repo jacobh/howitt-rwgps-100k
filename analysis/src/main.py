@@ -1,13 +1,14 @@
+# analysis/src/main.py
 import json
 import jax.numpy as jnp
 from pathlib import Path
 import aiofiles
 import asyncio
-from shapely import STRtree
-from shapely.geometry import shape
+import atexit
 
 from .point_delta import all_point_deltas
 from .segments import create_trip_segments, create_all_segment_bboxes
+from .spatial_service import AsyncSpatialService
 
 
 async def load_trip_data(trip_file_path):
@@ -25,64 +26,44 @@ async def load_highway_data(file_path):
         return data
 
 
-def create_highway_strtree(highway_data):
-    """Create an STRTree from highway features"""
-    # Convert GeoJSON features to Shapely geometries
-    geometries = []
-    for feature in highway_data["features"]:
-        try:
-            if "geometry" in feature:
-                # Create a Shapely geometry from the GeoJSON geometry
-                geom = shape(feature["geometry"])
+async def analyze_trip_file(trip_file_path, spatial_service):
+    """Analyze a single trip file and return results"""
+    try:
+        # Load trip data
+        trip_data = await load_trip_data(trip_file_path)
 
-                geometries.append(geom)
-        except Exception as e:
-            print(f"Error processing geometry: {e}")
-            continue
+        # Get track points and summary
+        track_points = get_track_points(trip_data)
 
-    # Create the STRTree from the geometries
-    tree = STRtree(geometries)
-    print(f"Created STRTree with {len(geometries)} highway geometries")
+        if not track_points:
+            print(f"No track points found in {trip_file_path}")
+            return None
 
-    return tree
+        # Get data arrays for further analysis
+        arrays = extract_jax_arrays(track_points)
 
+        deltas = all_point_deltas(arrays)
 
-def find_nearby_highways(segment_bboxes, highway_tree, highway_data):
-    """Find highways near each segment using the STRtree index
+        segments = create_trip_segments(arrays, deltas, min_distance_m=200)
 
-    Args:
-        segment_bboxes: JAX array of bounding boxes, each in format (min_lng, min_lat, max_lng, max_lat)
-        highway_tree: STRtree containing highway geometries
-        highway_data: Original highway data with features
+        bboxes = create_all_segment_bboxes(segments)
 
-    Returns:
-        List of lists, where each inner list contains the highway features near the corresponding segment
-    """
-    from shapely.geometry import box
+        # Use the spatial service to find nearby highways
+        nearby_highways = await spatial_service.find_nearby_highways(bboxes)
 
-    # Convert JAX array to numpy for use with Shapely
-    bboxes_np = segment_bboxes.tolist()
+        print(
+            f"Found {sum(len(highways) for highways in nearby_highways)} nearby highways across {len(nearby_highways)} segments"
+        )
 
-    # For each segment's bounding box, query the highway tree
-    nearby_highways_per_segment = []
+        return {
+            "arrays": arrays,
+            "segments": segments,
+            "nearby_highways": nearby_highways,
+        }
 
-    for bbox in bboxes_np:
-        # Create a shapely box from the bounding box coordinates
-        query_box = box(bbox[0], bbox[1], bbox[2], bbox[3])
-
-        # Query the STRtree for highways that intersect this box
-        nearby_indices = highway_tree.query(query_box)
-
-        # Get the actual highway features using the indices from the original highway_data
-        nearby_features = []
-        for idx in nearby_indices:
-            # Get the original feature from highway_data
-            feature = highway_data["features"][idx]
-            nearby_features.append(feature)
-
-        nearby_highways_per_segment.append(nearby_features)
-
-    return nearby_highways_per_segment
+    except Exception as e:
+        print(f"Error analyzing trip {trip_file_path}: {e}")
+        return None
 
 
 def get_track_points(trip_data):
@@ -150,47 +131,6 @@ def extract_jax_arrays(track_points):
     return arrays
 
 
-async def analyze_trip_file(trip_file_path, highway_tree, highway_data):
-    """Analyze a single trip file and return results"""
-    try:
-        # Load trip data
-        trip_data = await load_trip_data(trip_file_path)
-
-        # Get track points and summary
-        track_points = get_track_points(trip_data)
-
-        if not track_points:
-            print(f"No track points found in {trip_file_path}")
-            return None
-
-        # Get data arrays for further analysis
-        arrays = extract_jax_arrays(track_points)
-
-        deltas = all_point_deltas(arrays)
-
-        segments = create_trip_segments(arrays, deltas, min_distance_m=200)
-
-        bboxes = create_all_segment_bboxes(segments)
-
-        # print(bboxes)
-
-        # find nearby highways for each segment
-        nearby_highways = find_nearby_highways(bboxes, highway_tree, highway_data)
-        print(
-            f"Found {sum(len(highways) for highways in nearby_highways)} nearby highways across {len(nearby_highways)} segments"
-        )
-
-        return {
-            "arrays": arrays,
-            "segments": segments,
-            "nearby_highways": nearby_highways,
-        }
-
-    except Exception as e:
-        print(f"Error analyzing trip {trip_file_path}: {e}")
-        return None
-
-
 async def main():
     # Load highway data first
     highway_file = Path("../data/vic_and_tas_highways.json")
@@ -200,11 +140,18 @@ async def main():
             print(
                 f"Loaded highway data: {len(highway_data['features'])} features found"
             )
-            highway_tree = create_highway_strtree(highway_data)
+
+            # Initialize the spatial service with the highway data
+            spatial_service = AsyncSpatialService(highway_data)
+
+            # Register cleanup function to ensure the service is properly shut down
+            atexit.register(spatial_service.shutdown)
         else:
             print("No features found in highway data")
+            return
     except Exception as e:
         print(f"Error loading highway data: {e}")
+        return
 
     # Find trip files
     data_dir = Path("../data/trips")
@@ -220,10 +167,7 @@ async def main():
     print(f"Analyzing {max_files} trip files...")
 
     # Create tasks for all files
-    tasks = [
-        analyze_trip_file(trip_file, highway_tree, highway_data)
-        for trip_file in trip_files
-    ]
+    tasks = [analyze_trip_file(trip_file, spatial_service) for trip_file in trip_files]
 
     # Run all tasks concurrently
     results = await asyncio.gather(*tasks)
@@ -246,6 +190,9 @@ async def main():
         print("\nData availability across trips:")
         for key, count in data_counts.items():
             print(f"  {key}: {count} trips ({count / len(valid_results) * 100:.1f}%)")
+
+    # Explicitly shut down the spatial service
+    spatial_service.shutdown()
 
 
 if __name__ == "__main__":
