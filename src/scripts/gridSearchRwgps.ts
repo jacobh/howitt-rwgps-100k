@@ -153,7 +153,7 @@ async function gridSearchRwgps(maxAreaKm2: number = 200, concurrency: number = 1
   // Save trips to JSON file in current working directory
   const fs = require('fs');
   const path = require('path');
-  const outputPath = path.join(process.cwd(), 'rwgps_trips.json');
+  const outputPath = path.join(process.cwd(), 'data', 'rwgps_trips.json');
   
   console.log(`\nSaving ${allTrips.length} trips to ${outputPath}...`);
   fs.writeFileSync(outputPath, JSON.stringify(allTrips, null, 2), 'utf8');
