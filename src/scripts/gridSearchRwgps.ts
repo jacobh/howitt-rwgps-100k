@@ -40,6 +40,7 @@ function convertToRwgpsBbox(
 async function searchBbox(
   client: RwgpsApiClient,
   bbox: GeoJSON.Feature<GeoJSON.Polygon>,
+  maxPages: number,
   cellIndex: number,
   totalCells: number
 ) {
@@ -52,7 +53,7 @@ async function searchBbox(
   let hasMorePages = true;
 
   // Fetch up to 10 pages of results
-  while (hasMorePages && pageCount < 20) {
+  while (hasMorePages && pageCount < maxPages) {
     pageCount++;
     console.log(
       `Cell ${cellIndex + 1}: Fetching page ${pageCount} (offset: ${offset})`
@@ -109,8 +110,9 @@ async function searchBbox(
  * Automatically paginates through results (up to 10 pages per bbox)
  */
 async function gridSearchRwgps(
-  maxAreaKm2: number = 200,
-  concurrency: number = 20
+  maxAreaKm2: number = 25,
+  maxPages: number = 30,
+  concurrency: number = 100
 ) {
   console.log("Starting grid search of RWGPS...");
 
@@ -132,7 +134,7 @@ async function gridSearchRwgps(
 
   // Create an array of limited promises for each bbox search
   const promises = bboxes.map((bbox, index) =>
-    limit(() => searchBbox(client, bbox, index, bboxes.length))
+    limit(() => searchBbox(client, bbox, maxPages, index, bboxes.length))
   );
 
   // Wait for all searches to complete
