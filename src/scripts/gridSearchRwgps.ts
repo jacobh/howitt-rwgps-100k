@@ -49,12 +49,12 @@ async function searchBbox(
   
   try {
     // Fetch up to 10 pages of results
-    while (hasMorePages && pageCount < 100) {
+    while (hasMorePages && pageCount < 20) {
       pageCount++;
       console.log(`Cell ${index+1}: Fetching page ${pageCount} (offset: ${offset})`);
       
       const results = await client.exploreTrips(rwgpsBbox, { 
-        limit: 100,
+        limit: 10,
         offset: offset
       });
       
@@ -106,7 +106,7 @@ async function searchBbox(
  * Searches RWGPS for trips in each bbox of the sliced polygon
  * Automatically paginates through results (up to 10 pages per bbox)
  */
-async function gridSearchRwgps(maxAreaKm2: number = 200, concurrency: number = 10) {
+async function gridSearchRwgps(maxAreaKm2: number = 200, concurrency: number = 20) {
   console.log('Starting grid search of RWGPS...');
   
   // Slice the search polygon into smaller bboxes

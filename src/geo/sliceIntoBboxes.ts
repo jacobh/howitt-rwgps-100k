@@ -9,7 +9,7 @@ import type { Feature, Polygon } from "geojson";
  */
 function sliceIntoBboxes(
   polygon: GeoJSON.Feature<GeoJSON.Polygon>,
-  maxAreaKm2: number = 200
+  maxAreaKm2: number = 50
 ): GeoJSON.Feature<GeoJSON.Polygon>[] {
   // Calculate the polygon area in square kilometers
   const area = turf.area(polygon) / 1000000; // Convert from m² to km²
