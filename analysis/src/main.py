@@ -7,6 +7,7 @@ from shapely import STRtree
 from shapely.geometry import shape
 
 from .point_delta import all_point_deltas
+from .segments import create_trip_segments
 
 
 async def load_trip_data(trip_file_path):
@@ -126,7 +127,9 @@ async def analyze_trip_file(trip_file_path, output_dir=None):
 
         deltas = all_point_deltas(arrays)
 
-        print(deltas)
+        segments = create_trip_segments(arrays, deltas, min_distance_m=200)
+
+        print(segments)
 
         return {"arrays": arrays}
 
