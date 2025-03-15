@@ -1,3 +1,4 @@
+import jax
 import jax.numpy as jnp
 
 def degrees_to_radians(degrees):
@@ -9,6 +10,7 @@ def radians_to_degrees(radians):
     """Convert radians to degrees using JAX"""
     return radians * 180.0 / jnp.pi
 
+@jax.jit
 def haversine_distance(lat1, lng1, lat2, lng2):
     """
     Calculate the great-circle distance between two points
