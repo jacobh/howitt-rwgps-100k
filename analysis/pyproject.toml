@@ -9,4 +9,5 @@ dependencies = [
     "jax>=0.5.2",
     "matplotlib>=3.10.1",
     "numpy>=2.2.3",
+    "shapely>=2.0.7",
 ]

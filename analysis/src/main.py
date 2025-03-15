@@ -3,6 +3,8 @@ import jax.numpy as jnp
 from pathlib import Path
 import aiofiles
 import asyncio
+from shapely import STRtree
+from shapely.geometry import shape
 
 from .point_delta import all_point_deltas
 
@@ -12,6 +14,35 @@ async def load_trip_data(trip_file_path):
     async with aiofiles.open(trip_file_path, "r") as f:
         content = await f.read()
         return json.loads(content)
+
+
+async def load_highway_data(file_path):
+    """Load highway data from GeoJSON file using async I/O"""
+    async with aiofiles.open(file_path, "r") as f:
+        content = await f.read()
+        data = json.loads(content)
+        return data
+
+
+def create_highway_strtree(highway_data):
+    """Create an STRTree from highway features"""
+    # Convert GeoJSON features to Shapely geometries
+    geometries = []
+    for feature in highway_data["features"]:
+        if "geometry" in feature:
+            # Create a Shapely geometry from the GeoJSON geometry
+            geom = shape(feature["geometry"])
+            
+            # Store the feature properties along with the geometry for later reference
+            geom.properties = feature.get("properties", {})
+            
+            geometries.append(geom)
+    
+    # Create the STRTree from the geometries
+    tree = STRtree(geometries)
+    print(f"Created STRTree with {len(geometries)} highway geometries")
+    
+    return tree
 
 
 def get_track_points(trip_data):
@@ -105,6 +136,18 @@ async def analyze_trip_file(trip_file_path, output_dir=None):
 
 
 async def main():
+    # Load highway data first
+    highway_file = Path("../data/vic_and_tas_highways.json")
+    try:
+        highway_data = await load_highway_data(highway_file)
+        if "features" in highway_data:
+            print(f"Loaded highway data: {len(highway_data['features'])} features found")
+            highway_tree = create_highway_strtree(highway_data)
+        else:
+            print("No features found in highway data")
+    except Exception as e:
+        print(f"Error loading highway data: {e}")
+
     # Find trip files
     data_dir = Path("../data/trips")
     trip_files = list(data_dir.glob("trip_*.json"))
@@ -114,7 +157,7 @@ async def main():
         return
     
     # Limit to 1000 files or use all available if less than 1000
-    max_files = min(1000, len(trip_files))
+    max_files = min(1, len(trip_files))
     trip_files = trip_files[:max_files]
     print(f"Analyzing {max_files} trip files...")
     
