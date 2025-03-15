@@ -6,6 +6,7 @@ import type { Feature, FeatureCollection, Point } from 'geojson';
 /**
  * Converts RWGPS trips to a GeoJSON FeatureCollection
  * This version extracts the first point of each ride
+ * and samples a random subset of 1000 rides
  */
 async function createTripsGeoJson() {
   // Path to the saved trips data file
@@ -20,12 +21,20 @@ async function createTripsGeoJson() {
   }
   
   const tripsData = fs.readFileSync(tripsFilePath, 'utf8');
-  const trips: TripSummary[] = JSON.parse(tripsData);
+  const allTrips: TripSummary[] = JSON.parse(tripsData);
   
-  console.log(`Processing ${trips.length} trips...`);
+  console.log(`Found ${allTrips.length} trips total`);
+  
+  // Sample size
+  const sampleSize = Math.min(10_000, allTrips.length);
+  
+  // Take a random sample of trips
+  const sampledTrips = getRandomSample(allTrips, sampleSize);
+  
+  console.log(`Processing random sample of ${sampledTrips.length} trips...`);
   
   // Create GeoJSON features for each trip
-  const features: Feature<Point>[] = trips.map(trip => {
+  const features: Feature<Point>[] = sampledTrips.map(trip => {
     // Create a point feature using the first point of the trip
     return {
       type: 'Feature',
@@ -57,11 +66,36 @@ async function createTripsGeoJson() {
   };
   
   // Save the GeoJSON to a file
-  const outputPath = path.join(process.cwd(), 'data', 'rwgps_trips_points.geojson');
+  const outputPath = path.join(process.cwd(), 'data', 'rwgps_trips_points_sample.geojson');
   fs.writeFileSync(outputPath, JSON.stringify(featureCollection, null, 2), 'utf8');
   
   console.log(`GeoJSON file created at ${outputPath}`);
-  console.log(`Created features for ${features.length} trips`);
+  console.log(`Created features for ${features.length} trips (from original ${allTrips.length})`);
+}
+
+/**
+ * Get a random sample of items from an array
+ * @param array The source array
+ * @param sampleSize Number of items to sample
+ * @returns Random sample of the specified size
+ */
+function getRandomSample<T>(array: T[], sampleSize: number): T[] {
+  // Create a copy of the array to avoid modifying the original
+  const arrayCopy = [...array];
+  
+  // If sample size is larger than array, return the whole array
+  if (sampleSize >= arrayCopy.length) {
+    return arrayCopy;
+  }
+  
+  // Fisher-Yates shuffle algorithm
+  for (let i = arrayCopy.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arrayCopy[i], arrayCopy[j]] = [arrayCopy[j], arrayCopy[i]];
+  }
+  
+  // Return the first N elements of the shuffled array
+  return arrayCopy.slice(0, sampleSize);
 }
 
 // Execute the conversion script

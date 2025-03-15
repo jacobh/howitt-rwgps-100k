@@ -10,6 +10,8 @@
   },
   "dependencies": {
     "@turf/turf": "^7.2.0",
-    "p-limit": "^6.2.0"
+    "@types/progress": "^2.0.7",
+    "p-limit": "^6.2.0",
+    "progress": "^2.0.3"
   }
 }

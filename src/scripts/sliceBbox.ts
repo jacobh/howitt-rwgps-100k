@@ -82,7 +82,7 @@ export const searchPolygon = {
   }
 
 // Example usage with your searchPolygon
-const bboxes = sliceIntoBboxes(searchPolygon.features[0] as GeoJSON.Feature<GeoJSON.Polygon>);
+const bboxes = sliceIntoBboxes(searchPolygon.features[0] as GeoJSON.Feature<GeoJSON.Polygon>, 100);
 console.log(`Generated ${bboxes.length} bounding boxes`);
 
 // Optional: Convert to a feature collection if needed
@@ -91,4 +91,4 @@ const bboxCollection: GeoJSON.FeatureCollection = {
   features: bboxes
 };
 
-// console.log(JSON.stringify(bboxCollection, null, 2));
+console.log(JSON.stringify(bboxCollection, null, 2));
