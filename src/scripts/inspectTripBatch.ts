@@ -1,7 +1,10 @@
 import fs from "fs";
 import path from "path";
 import { unpack } from "msgpackr";
+import yargs from "yargs";
+import { hideBin } from "yargs/helpers";
 import type { TripDetailsResponse } from "../rwgps/types";
+import { table } from "table";
 
 /**
  * Formats distance in meters to a readable format (in kilometers)
@@ -11,6 +14,14 @@ function formatDistance(meters: number): string {
   const km = meters / 1000;
   return `${km.toFixed(1)} km`;
 }
+
+function sanitizeString(str: string): string {
+    if (!str) return '';
+    
+    // Replace control characters with empty string
+    // This regex matches all ASCII control characters (0-31 and 127)
+    return str.replace(/[\x00-\x1F\x7F]/g, '');
+  }
 
 /**
  * Lists all trips in a batch file
@@ -25,25 +36,65 @@ async function listTrips(batchPath: string): Promise<void> {
 
     console.log(`Found ${trips.length} trips in batch\n`);
 
-    // Print header
-    console.log("Trip ID    | Username             | Distance      | Title");
-    console.log(
-      "----------|-----------------------|---------------|------------------"
-    );
+    const tableData = [
+      ["Trip ID", "User ID", "Distance", "Title"], // Header row
+      ...trips.map((trip) => [
+        trip.trip.id.toString(),
+        trip.trip.user_id || "Unknown",
+        formatDistance(trip.trip.distance || 0),
+        sanitizeString(trip.trip.name || "Untitled"),
+      ]),
+    ];
 
-    // Print information for each trip
-    trips.forEach((trip) => {
-      const tripId = trip.trip.id.toString().padEnd(10);
-      const username = (trip.user?.name || "Unknown").padEnd(21);
-      const distance = formatDistance(trip.trip.distance || 0).padEnd(13);
-      const title = trip.trip.name || "Untitled";
-
-      console.log(`${tripId} | ${username} | ${distance} | ${title}`);
-    });
+    console.log(table(tableData, { singleLine: true }));
 
     console.log("\nBatch inspection complete.");
   } catch (error: any) {
     console.error(`Error inspecting trip batch: ${error.message}`);
+    process.exit(1);
+  }
+}
+
+/**
+ * Lists all trips in all batch files in a directory
+ */
+/**
+ * Lists all trips in all batch files in a directory
+ */
+async function listAllTripsInDirectory(directoryPath: string): Promise<void> {
+  try {
+    console.log(`Inspecting trip batches in directory: ${directoryPath}`);
+
+    // Check if directory exists
+    if (!fs.existsSync(directoryPath)) {
+      console.error(`Error: Directory not found: ${directoryPath}`);
+      process.exit(1);
+    }
+
+    // Get all files in the directory
+    const files = await fs.promises.readdir(directoryPath);
+
+    // Filter for .msgpack files
+    const batchFiles = files
+      .filter((file) => file.endsWith(".msgpack"))
+      .map((file) => path.join(directoryPath, file));
+
+    if (batchFiles.length === 0) {
+      console.log("No batch files (.msgpack) found in the directory.");
+      return;
+    }
+
+    console.log(`Found ${batchFiles.length} batch files\n`);
+
+    // Process each batch file
+    for (const batchFile of batchFiles) {
+      await listTrips(batchFile);
+      console.log("\n----------------------------------------\n");
+    }
+
+    console.log("Directory inspection complete.");
+  } catch (error: any) {
+    console.error(`Error inspecting trip batch directory: ${error.message}`);
     process.exit(1);
   }
 }
@@ -78,89 +129,88 @@ async function extractTrip(batchPath: string, tripId: number): Promise<void> {
 }
 
 /**
- * Displays usage information
- */
-function printUsage(): void {
-  console.log("Usage: npm run inspect-batch -- <command> [options]");
-  console.log("");
-  console.log("Commands:");
-  console.log(
-    "  list <batch-file-path>              List all trips in the batch"
-  );
-  console.log(
-    "  extract-trip <batch-file-path> <trip-id>  Extract and print a specific trip"
-  );
-  console.log("");
-  console.log("Examples:");
-  console.log(
-    "  npm run inspect-batch -- list ./data/trip_batches/trip_batch_0.msgpack"
-  );
-  console.log(
-    "  npm run inspect-batch -- extract-trip ./data/trip_batches/trip_batch_0.msgpack 12345"
-  );
-}
-
-/**
  * Main function to parse command line arguments and run the appropriate command
  */
 async function main(): Promise<void> {
-  const args = process.argv.slice(2);
-
-  if (args.length === 0 || args.includes("--help") || args.includes("-h")) {
-    printUsage();
-    return;
-  }
-
-  const command = args[0];
-
-  switch (command) {
-    case "list":
-      if (args.length < 2) {
-        console.error("Error: Missing batch file path");
-        printUsage();
-        process.exit(1);
+  // Configure yargs
+  const argv = yargs(hideBin(process.argv))
+    .scriptName("inspect-batch")
+    .usage("Usage: $0 <command> [options]")
+    .command(
+      "list <batchPath>",
+      "List all trips in the batch",
+      (yargs) => {
+        return yargs.positional("batchPath", {
+          describe: "Path to the batch file",
+          type: "string",
+          demandOption: true,
+        });
+      },
+      async (argv) => {
+        // Check if the file exists
+        if (!fs.existsSync(argv.batchPath)) {
+          console.error(`Error: File not found: ${argv.batchPath}`);
+          process.exit(1);
+        }
+        await listTrips(argv.batchPath);
       }
-
-      const listBatchPath = args[1];
-
-      // Check if the file exists
-      if (!fs.existsSync(listBatchPath)) {
-        console.error(`Error: File not found: ${listBatchPath}`);
-        process.exit(1);
+    )
+    .command(
+      "list-dir <dirPath>",
+      "List all trips from all batch files in a directory",
+      (yargs) => {
+        return yargs.positional("dirPath", {
+          describe: "Path to the directory containing batch files",
+          type: "string",
+          demandOption: true,
+        });
+      },
+      async (argv) => {
+        await listAllTripsInDirectory(argv.dirPath);
       }
-
-      await listTrips(listBatchPath);
-      break;
-
-    case "extract-trip":
-      if (args.length < 3) {
-        console.error("Error: Missing batch file path or trip ID");
-        printUsage();
-        process.exit(1);
+    )
+    .command(
+      "extract-trip <batchPath> <tripId>",
+      "Extract and print a specific trip",
+      (yargs) => {
+        return yargs
+          .positional("batchPath", {
+            describe: "Path to the batch file",
+            type: "string",
+            demandOption: true,
+          })
+          .positional("tripId", {
+            describe: "ID of the trip to extract",
+            type: "number",
+            demandOption: true,
+          });
+      },
+      async (argv) => {
+        // Check if the file exists
+        if (!fs.existsSync(argv.batchPath)) {
+          console.error(`Error: File not found: ${argv.batchPath}`);
+          process.exit(1);
+        }
+        await extractTrip(argv.batchPath, argv.tripId);
       }
-
-      const extractBatchPath = args[1];
-      const tripId = parseInt(args[2], 10);
-
-      if (isNaN(tripId)) {
-        console.error("Error: Trip ID must be a number");
-        process.exit(1);
-      }
-
-      // Check if the file exists
-      if (!fs.existsSync(extractBatchPath)) {
-        console.error(`Error: File not found: ${extractBatchPath}`);
-        process.exit(1);
-      }
-
-      await extractTrip(extractBatchPath, tripId);
-      break;
-
-    default:
-      console.error(`Error: Unknown command '${command}'`);
-      printUsage();
-      process.exit(1);
-  }
+    )
+    .example(
+      "$0 list ./data/trip_batches/trip_batch_0.msgpack",
+      "List all trips in the batch"
+    )
+    .example(
+      "$0 list-dir ./data/trip_batches",
+      "List all trips from all batch files in a directory"
+    )
+    .example(
+      "$0 extract-trip ./data/trip_batches/trip_batch_0.msgpack 12345",
+      "Extract and print trip with ID 12345"
+    )
+    .demandCommand(1, "You must specify a command")
+    .strict()
+    .help()
+    .alias("h", "help")
+    .alias("v", "version").argv;
 }
 
 // Execute the script if run directly

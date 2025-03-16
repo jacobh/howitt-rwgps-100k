@@ -166,6 +166,7 @@ export interface User {
 
 export interface Trip {
   id: number;
+  user_id: number;
   name: string;
   administrative_area: string;
   country_code: string;
