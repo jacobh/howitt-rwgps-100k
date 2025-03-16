@@ -6,10 +6,13 @@ import aiofiles
 import asyncio
 import atexit
 import msgpack  # Standard msgpack library
+import time
+from contextlib import contextmanager
 
 from .point_delta import all_point_deltas
 from .segments import create_trip_segments, create_all_segment_bboxes
 from .spatial_service import AsyncSpatialService
+from .highway_matching import all_segments_nearest_highways
 
 
 async def load_batch_data(batch_file_path):
@@ -26,48 +29,78 @@ async def load_highway_data(file_path):
         data = json.loads(content)
         return data
 
+@contextmanager
+def timer(name, trip_id=None):
+    """Context manager for timing code blocks"""
+    prefix = f"Trip {trip_id}: " if trip_id else ""
+    start = time.perf_counter()
+    yield
+    elapsed = time.perf_counter() - start
+    print(f"{prefix}{name} took {elapsed:.4f}s")
+
 
 async def analyze_trip(trip_data, spatial_service, trip_id=None):
     """Analyze a single trip and return results"""
-    try:
-        # Get track points and summary
-        track_points = get_track_points(trip_data)
 
-        if not track_points:
+    print(f"analyzing trip {trip_id}")
+    
+    with timer("Total analysis", trip_id):
+        try:
+            # Get track points and summary
+            with timer("Get track points", trip_id):
+                track_points = get_track_points(trip_data)
+
+            if not track_points:
+                if trip_id:
+                    print(f"No track points found in trip {trip_id}")
+                return None
+
+            # Get data arrays for further analysis
+            with timer("Extract JAX arrays", trip_id):
+                arrays = await asyncio.to_thread(lambda: extract_jax_arrays(track_points))
+
+            with timer("Calculate point deltas", trip_id):
+                deltas = await asyncio.to_thread(lambda: all_point_deltas(arrays))
+
+            with timer("Create trip segments", trip_id):
+                segments = await asyncio.to_thread(lambda: create_trip_segments(arrays, deltas, min_distance_m=200))
+
+            with timer("Create segment bboxes", trip_id):
+                bboxes = await asyncio.to_thread(lambda: create_all_segment_bboxes(segments))
+
+            # Use the spatial service to find nearby highways
+            with timer("Find nearby highways", trip_id):
+                nearby_highways = await spatial_service.find_nearby_highways(bboxes)
+
+            # Match segments to highways
+            with timer("Match segments to highways", trip_id):
+                segment_highway_matches = await asyncio.to_thread(
+                    lambda: all_segments_nearest_highways(segments, nearby_highways)
+                )
+
             if trip_id:
-                print(f"No track points found in trip {trip_id}")
+                match_count = sum(1 for _, highway, _ in segment_highway_matches if highway is not None)
+                print(
+                    f"Trip {trip_id}: Found {sum(len(highways) for highways in nearby_highways)} nearby highways across {len(nearby_highways)} segments"
+                )
+                print(
+                    f"Trip {trip_id}: Successfully matched {match_count} out of {len(segments)} segments to highways"
+                )
+
+            return {
+                "trip_id": trip_id,
+                "arrays": arrays,
+                "segments": segments,
+                "nearby_highways": nearby_highways,
+                "segment_highway_matches": segment_highway_matches,
+            }
+
+        except Exception as e:
+            if trip_id:
+                print(f"Error analyzing trip {trip_id}: {e}")
+            else:
+                print(f"Error analyzing trip: {e}")
             return None
-
-        # Get data arrays for further analysis
-        arrays = extract_jax_arrays(track_points)
-
-        deltas = all_point_deltas(arrays)
-
-        segments = create_trip_segments(arrays, deltas, min_distance_m=200)
-
-        bboxes = create_all_segment_bboxes(segments)
-
-        # Use the spatial service to find nearby highways
-        nearby_highways = await spatial_service.find_nearby_highways(bboxes)
-
-        if trip_id:
-            print(
-                f"Trip {trip_id}: Found {sum(len(highways) for highways in nearby_highways)} nearby highways across {len(nearby_highways)} segments"
-            )
-
-        return {
-            "trip_id": trip_id,
-            "arrays": arrays,
-            "segments": segments,
-            "nearby_highways": nearby_highways,
-        }
-
-    except Exception as e:
-        if trip_id:
-            print(f"Error analyzing trip {trip_id}: {e}")
-        else:
-            print(f"Error analyzing trip: {e}")
-        return None
 
 
 def get_track_points(trip_data):
@@ -182,13 +215,14 @@ async def process_batch(batch_file, spatial_service, max_concurrent=100, max_tri
 
 
 async def main():
-    # Set up parameters
+    # Configuration parameters
+    data_dir = Path("/workspace/data")  # Change this path as needed
     max_batches = 1  # Number of batch files to process
     max_trips_per_batch = 100  # Max trips to process from each batch
-    max_concurrent_trips = 50  # Max concurrent trip analyses
+    max_concurrent_trips = 1  # Max concurrent trip analyses
     
     # Load highway data first
-    highway_file = Path("../data/vic_and_tas_highways.json")
+    highway_file = data_dir / "geo_data" / "vic_and_tas_highways.json"
     try:
         highway_data = await load_highway_data(highway_file)
         if "features" in highway_data:
@@ -209,7 +243,7 @@ async def main():
         return
 
     # Find batch files
-    batches_dir = Path("../data/trip_batches")
+    batches_dir = data_dir / "trip_batches"
     batch_files = list(batches_dir.glob("trip_batch_*.msgpack"))
 
     if not batch_files:

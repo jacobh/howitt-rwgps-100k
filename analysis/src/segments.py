@@ -1,16 +1,14 @@
 import jax
 import jax.numpy as jnp
-import numpy as np
-from .geo import haversine_distance
 
 def create_trip_segments(arrays, deltas, min_distance_m=1000):
     """
-    Split a trip into segments, each with a minimum distance traveled.
+    Split a trip into segments by dividing it into roughly equal parts based on total distance.
     
     Args:
         arrays: Dictionary of JAX arrays containing track data
         deltas: Dictionary of JAX arrays containing point-to-point deltas
-        min_distance_m: Minimum distance in meters for each segment (default: 1000m)
+        min_distance_m: Target distance in meters for each segment (default: 1000m)
         
     Returns:
         List of tuples (segment_arrays, segment_deltas), where each tuple represents a segment
@@ -20,27 +18,25 @@ def create_trip_segments(arrays, deltas, min_distance_m=1000):
     if n_points <= 2:
         return [(arrays, deltas)]
     
-    # Find segment boundaries
+    # Calculate total distance of the trip
+    if "distance_m" in deltas and deltas["distance_m"].size > 0:
+        total_distance = jnp.sum(deltas["distance_m"])
+    else:
+        # If no distance deltas available, return a single segment
+        return [(arrays, deltas)]
+    
+    # Calculate number of segments based on total distance and min_distance_m
+    num_segments = max(1, int(total_distance / min_distance_m))
+    
+    # Calculate points per segment, ensuring at least 2 points per segment
+    points_per_segment = max(2, n_points // num_segments)
+    
+    # Create even segment boundaries
     boundaries = []
-    segment_start = 0
-    
-    # Convert to numpy for easier processing
-    latlng = np.array(arrays["latlng"])
-    
-    for i in range(1, n_points):
-        first_point = latlng[segment_start]
-        current_point = latlng[i]
-        
-        # Calculate haversine distance
-        lat1, lng1 = first_point
-        lat2, lng2 = current_point
-        
-        # We'll use the haversine_distance function from your existing code
-        distance = haversine_distance(lat1, lng1, lat2, lng2)
-        
-        if distance >= min_distance_m:
-            boundaries.append(i)
-            segment_start = i
+    for i in range(1, num_segments):
+        # Calculate boundary index, ensuring we don't exceed array length
+        boundary_idx = min(i * points_per_segment, n_points - 1)
+        boundaries.append(boundary_idx)
     
     # Create segments based on boundaries
     segments = []

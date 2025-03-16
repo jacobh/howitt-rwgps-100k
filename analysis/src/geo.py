@@ -1,5 +1,6 @@
 import jax
 import jax.numpy as jnp
+import numpy as np
 
 def degrees_to_radians(degrees):
     """Convert degrees to radians using JAX"""
@@ -11,7 +12,7 @@ def radians_to_degrees(radians):
     return radians * 180.0 / jnp.pi
 
 @jax.jit
-def haversine_distance(lat1, lng1, lat2, lng2):
+def haversine_distance_jax(lat1, lng1, lat2, lng2):
     """
     Calculate the great-circle distance between two points
     using the haversine formula with JAX.
@@ -38,6 +39,39 @@ def haversine_distance(lat1, lng1, lat2, lng2):
         + jnp.cos(lat1_rad) * jnp.cos(lat2_rad) * jnp.sin(dlng / 2.0) ** 2
     )
     c = 2.0 * jnp.arctan2(jnp.sqrt(a), jnp.sqrt(1.0 - a))
+
+    # Earth radius in meters
+    R = 6371000.0
+    return R * c
+
+
+def haversine_distance_cpu(lat1, lng1, lat2, lng2):
+    """
+    Calculate the great-circle distance between two points
+    using the haversine formula with JAX.
+
+    Args:
+        lat1, lng1: Latitude and longitude of point 1 in degrees
+        lat2, lng2: Latitude and longitude of point 2 in degrees
+
+    Returns:
+        Distance between points in meters
+    """
+    # Convert lat/lng from degrees to radians
+    lat1_rad = degrees_to_radians(lat1)
+    lng1_rad = degrees_to_radians(lng1)
+    lat2_rad = degrees_to_radians(lat2)
+    lng2_rad = degrees_to_radians(lng2)
+
+    # Haversine formula
+    dlng = lng2_rad - lng1_rad
+    dlat = lat2_rad - lat1_rad
+
+    a = (
+        np.sin(dlat / 2.0) ** 2
+        + np.cos(lat1_rad) * np.cos(lat2_rad) * np.sin(dlng / 2.0) ** 2
+    )
+    c = 2.0 * np.arctan2(np.sqrt(a), np.sqrt(1.0 - a))
 
     # Earth radius in meters
     R = 6371000.0
