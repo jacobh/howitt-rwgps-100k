@@ -25,16 +25,16 @@ async function createTripsGeoJson() {
   
   console.log(`Found ${allTrips.length} trips total`);
   
-  // Sample size
-  const sampleSize = Math.min(10_000, allTrips.length);
+  // // Sample size
+  // const sampleSize = Math.min(10_000, allTrips.length);
   
-  // Take a random sample of trips
-  const sampledTrips = getRandomSample(allTrips, sampleSize);
+  // // Take a random sample of trips
+  // const sampledTrips = getRandomSample(allTrips, sampleSize);
   
-  console.log(`Processing random sample of ${sampledTrips.length} trips...`);
+  // console.log(`Processing random sample of ${sampledTrips.length} trips...`);
   
   // Create GeoJSON features for each trip
-  const features: Feature<Point>[] = sampledTrips.map(trip => {
+  const features: Feature<Point>[] = allTrips.map(trip => {
     // Create a point feature using the first point of the trip
     return {
       type: 'Feature',
@@ -66,7 +66,7 @@ async function createTripsGeoJson() {
   };
   
   // Save the GeoJSON to a file
-  const outputPath = path.join(process.cwd(), 'data', 'rwgps_trips_points_sample.geojson');
+  const outputPath = path.join(process.cwd(), 'data', 'rwgps_trips_points.geojson');
   fs.writeFileSync(outputPath, JSON.stringify(featureCollection, null, 2), 'utf8');
   
   console.log(`GeoJSON file created at ${outputPath}`);
