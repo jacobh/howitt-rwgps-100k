@@ -1,11 +1,11 @@
 import numpy as np
 import shapely
 from ..lib.osm import build_spatial_index
-from ..lib.trip import load_batch_data, build_trip_coords
 from ..lib.geo import generate_bbox, pad_bbox, numpy_bbox_to_shapely
-from ..models.rwgps import Trip
+from ..models.trip_dimensions import TripDimensions
 import math
 from typing import List
+import msgpack
 
 def get_spatial_index() -> shapely.STRtree:
     npz_path: str = "../data/highways_coords.npz"
@@ -21,24 +21,31 @@ def get_spatial_index() -> shapely.STRtree:
 
     return tree
 
-def get_batch_trips() -> List[Trip]:
-    print("Loading trip batch data...")
-    return load_batch_data("../data/trip_batches/trip_batch_10.msgpack")
+def load_trip_dimensions() -> List[TripDimensions]:
+    """
+    Reload trip dimensions from the existing MessagePack file.
+    """
+    print("Reloading trip dimensions batch data...")
+    with open("../data/trip_dimensions/trip_dimensions_10.msgpack", "rb") as f:
+        raw = msgpack.unpackb(f.read(), raw=False)
+        return [TripDimensions.model_validate(item) for item in raw]
 
 
 def process_trip_highways() -> None:
     tree = get_spatial_index()
-    trips = get_batch_trips()
+    # trips = get_batch_trips()
+
+    trips = load_trip_dimensions()
 
     trip_highway_idxs = []
     for trip in trips:
         print(f"Processing trip {trip.id}...")
 
-        trip_coords = build_trip_coords(trip)
+        trip_coords = np.array([p for p in trip.coords if p is not None])
 
-        trip_distance_m = trip.distance
+        trip_distance_m = trip.distance_m
 
-        segment_count = max(1, math.ceil(trip_distance_m / 500))
+        segment_count = max(1, math.ceil(trip.distance_m / 500))
         print(f"Trip distance: {trip_distance_m} m, dividing into {segment_count} segments.")
 
         # Divide trip_coords into roughly equal buckets
@@ -60,8 +67,8 @@ def process_trip_highways() -> None:
         print(f"Found {len(highway_idxs)} highway segments for trip {trip.id}.")
         trip_highway_idxs.append(highway_idxs)
 
-    import pprint
-    pprint.pprint(trip_highway_idxs)
+    # import pprint
+    # pprint.pprint(trip_highway_idxs)
 
 
 if __name__ == "__main__":
