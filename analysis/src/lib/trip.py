@@ -3,14 +3,24 @@ from ..models.trip_dimensions import TripDimensions
 from typing import List, Any, Dict
 import numpy as np
 import msgpack
+from pydantic import ValidationError
+
 # import shapely
 
 def load_batch_data(batch_file_path: str) -> List[Trip]:
-    """Load batch data from MessagePack file using async I/O"""
+    """Load batch data from a MessagePack file and skip rides missing the distance field."""
     with open(batch_file_path, "rb") as f:
         content = f.read()
         parsed: List[Dict[str, Any]] = msgpack.unpackb(content)
-        return [Trip.parse_obj(t['trip']) for t in parsed]
+        trips = []
+        for t in parsed:
+            try:
+                trips.append(Trip.parse_obj(t["trip"]))
+            except ValidationError as e:
+                # Skips the ride if validation fails, e.g., when the distance field is missing.
+                print(f"Skipping ride in batch {batch_file_path} due to validation error: {e}")
+                continue
+        return trips
 
 def build_trip_coords(trip: Trip) -> np.ndarray:
     """Build a numpy array of coordinates from a trip"""
