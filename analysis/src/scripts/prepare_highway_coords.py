@@ -1,5 +1,5 @@
 import numpy as np
-from ..tasks.osm import load_highway_data, convert_all_highway_features_to_numpy
+from ..lib.osm import load_highway_data, convert_all_highway_features_to_numpy
 
 def load_and_convert_all_highway_features():
     """Load and convert all highway features to numpy arrays"""
