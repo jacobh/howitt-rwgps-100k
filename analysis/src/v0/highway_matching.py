@@ -2,7 +2,7 @@
 
 import jax
 import jax.numpy as jnp
-from .geo import vectorized_haversine_distances
+from ..lib.geo import vectorized_haversine_distances
 
 
 def extract_highway_coordinates(highway_feature):

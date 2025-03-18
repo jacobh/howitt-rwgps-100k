@@ -1,6 +1,6 @@
 import jax
 import jax.numpy as jnp
-from .geo import haversine_distance_jax, calculate_bearing
+from ..lib.geo import haversine_distance_jax, calculate_bearing
 
 def calculate_elevation_difference(elev1, elev2):
     """
