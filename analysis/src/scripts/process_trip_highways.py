@@ -3,6 +3,7 @@ import shapely
 from ..lib.osm import build_spatial_index
 from ..lib.geo import generate_bbox, pad_bbox, numpy_bbox_to_shapely
 from ..models.trip_dimensions import TripDimensions
+from ..models.trip_segments import TripSegment, TripSegments
 import math
 from typing import List
 import msgpack
@@ -30,46 +31,56 @@ def load_trip_dimensions() -> List[TripDimensions]:
         raw = msgpack.unpackb(f.read(), raw=False)
         return [TripDimensions.model_validate(item) for item in raw]
 
-
 def process_trip_highways() -> None:
     tree = get_spatial_index()
-    # trips = get_batch_trips()
-
     trips = load_trip_dimensions()
 
-    trip_highway_idxs = []
+    trip_segments_list: List[TripSegments] = []
     for trip in trips:
         print(f"Processing trip {trip.id}...")
 
-        trip_coords = np.array([p for p in trip.coords if p is not None])
-
+        # Exclude None values and convert to numpy array.
+        trip_coords = np.array([p if p is not None else [np.nan, np.nan] for p in trip.coords])
         trip_distance_m = trip.distance_m
 
-        segment_count = max(1, math.ceil(trip.distance_m / 500))
+        segment_count = max(1, math.ceil(trip_distance_m / 200))
         print(f"Trip distance: {trip_distance_m} m, dividing into {segment_count} segments.")
 
-        # Divide trip_coords into roughly equal buckets
-        trip_segments = np.array_split(trip_coords, segment_count)
-        print(f"Created {len(trip_segments)} segments for trip {trip.id}.")
+        segments: List[TripSegment] = []
+        # Split the indices instead of the data directly to retain start indexes.
+        indices = np.arange(len(trip_coords))
+        indices_splits = np.array_split(indices, segment_count)
 
-        bboxes = []
-        for segment in trip_segments:
-            if len(segment) > 0:
-                bbox2d = generate_bbox(segment)
-                bbox2d = pad_bbox(bbox2d, 250)
-                bbox_shapely = numpy_bbox_to_shapely(bbox2d)
-                bboxes.append(bbox_shapely)
+        for split in indices_splits:
+            if len(split) == 0:
+                continue
+            start_idx = int(split[0])
+            segment_coords = trip_coords[split]
+            segment_coords = segment_coords[~np.isnan(segment_coords).any(axis=1)]
 
-        highway_idxs: List[int] = []
-        for bbox in bboxes:
-            highway_idxs.extend(tree.query(bbox))
+            if len(segment_coords) == 0:
+                continue
 
-        print(f"Found {len(highway_idxs)} highway segments for trip {trip.id}.")
-        trip_highway_idxs.append(highway_idxs)
+            # Generate the bounding box for the segment and pad it.
+            bbox2d = generate_bbox(segment_coords)
+            bbox2d = pad_bbox(bbox2d, 250)
+            bbox_shapely = numpy_bbox_to_shapely(bbox2d)
 
-    # import pprint
-    # pprint.pprint(trip_highway_idxs)
+            # Obtain candidate highway indexes for this segment.
+            highway_idxs: List[int] = list(tree.query(bbox_shapely))
+            # print(f"Segment starting at index {start_idx} for trip {trip.id} has {len(highway_idxs)} highway segments.")
 
+            segment_obj = TripSegment(start_idx=start_idx, candidate_highway_indexes=highway_idxs)
+            segments.append(segment_obj)
+
+        trip_seg_obj = TripSegments(trip_id=trip.id, segments=segments)
+        trip_segments_list.append(trip_seg_obj)
+
+    # For example, print out the JSON representations of the TripSegments instances.
+    print("Finished processing trips. Generated TripSegments instances:")
+    # for ts in trip_segments_list:
+    #     # Using the pydantic's model json() method for pretty printing
+    #     print(ts.json())
 
 if __name__ == "__main__":
     process_trip_highways()
