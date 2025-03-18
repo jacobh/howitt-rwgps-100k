@@ -1,6 +1,7 @@
 import jax
 import jax.numpy as jnp
 import numpy as np
+import shapely
 
 def degrees_to_radians(degrees):
     """Convert degrees to radians using JAX"""
@@ -139,3 +140,100 @@ def vectorized_haversine_distances(reference_point, points):
     # Earth radius in meters
     R = 6371000.0
     return R * c
+
+def generate_bbox(coords: np.ndarray) -> np.ndarray:
+    """
+    Generate a bounding box for a trip as a 2x2 matrix.
+
+    The bounding box is represented as:
+        [[min_x, min_y],
+         [max_x, max_y]]
+    
+    Args:
+        trip_coords: A numpy array of shape (N, 2) containing the trip's (x, y) coordinates.
+    
+    Returns:
+        A 2x2 numpy array representing the bounding box.
+        
+    Raises:
+        ValueError: If the input array is empty.
+    """
+    if coords.size == 0:
+        raise ValueError("Input trip_coords is empty, cannot generate bounding box.")
+    
+    # Compute the minimum and maximum coordinates along each axis
+    min_vals = np.min(coords, axis=0)
+    max_vals = np.max(coords, axis=0)
+    
+    # Stack the min and max values into a 2x2 matrix
+    return np.vstack((min_vals, max_vals))
+
+def pad_bbox(bbox: np.ndarray, padding_m: float) -> np.ndarray:
+    """
+    Pad a geographic bounding box by a specified distance in meters on all sides.
+
+    The bounding box is expected to be in lon, lat pairs in the following format:
+        [[min_lon, min_lat],
+         [max_lon, max_lat]]
+    Since the padding is provided in meters, this function converts the
+    meter padding to degrees using an approximate conversion:
+      - For latitude: 1 degree is approximately 111.32 km.
+      - For longitude: 1 degree varies with latitude, approximately 
+        111.32 km * cos(latitude), where latitude is taken as the center latitude.
+    
+    Args:
+        bbox: A 2x2 numpy array representing the bounding box.
+        padding_m: A float representing the padding distance in meters.
+    
+    Returns:
+        A 2x2 numpy array representing the padded bounding box.
+        
+    Raises:
+        ValueError: If the input bbox does not have shape (2, 2).
+    """
+    if bbox.shape != (2, 2):
+        raise ValueError("Input bbox must be a 2x2 numpy array.")
+    
+    min_lon, min_lat = bbox[0]
+    max_lon, max_lat = bbox[1]
+    
+    # Compute the center latitude for adjusting the longitude conversion factor
+    center_lat = (min_lat + max_lat) / 2.0
+
+    # Approximate conversion factors:
+    # 1 degree latitude is ~111320 meters.
+    lat_deg_per_meter = 1.0 / 111320.0
+    # 1 degree longitude (~ at center latitude) in meters
+    long_deg_per_meter = 1.0 / (111320.0 * np.cos(np.deg2rad(center_lat)))
+    
+    # Convert the padding from meters to degrees
+    lat_padding = padding_m * lat_deg_per_meter
+    long_padding = padding_m * long_deg_per_meter
+    
+    padded_min = np.array([min_lon - long_padding, min_lat - lat_padding])
+    padded_max = np.array([max_lon + long_padding, max_lat + lat_padding])
+    
+    return np.vstack((padded_min, padded_max))
+
+
+def numpy_bbox_to_shapely(bbox: np.ndarray) -> shapely.geometry.Polygon:
+    """
+    Convert a 2x2 numpy array bounding box to a Shapely Polygon.
+    
+    The input bbox must be a 2x2 numpy array:
+        [[min_x, min_y],
+         [max_x, max_y]]
+    
+    Returns:
+        A Shapely Polygon representing the bounding box.
+        
+    Raises:
+        ValueError: If the input array does not have shape (2, 2).
+    """
+    if bbox.shape != (2, 2):
+        raise ValueError("Input bbox must be a 2x2 numpy array.")
+    
+    min_x, min_y = bbox[0]
+    max_x, max_y = bbox[1]
+    
+    return shapely.geometry.box(min_x, min_y, max_x, max_y)
