@@ -11,8 +11,8 @@ class SpatialWorkerProcess:
     """
     def __init__(self, highway_data: Dict[str, Any]):
         self.highway_data = highway_data
-        self.cmd_queue = mp.Queue()
-        self.res_queue = mp.Queue()
+        self.cmd_queue: mp.Queue = mp.Queue()
+        self.res_queue: mp.Queue = mp.Queue()
         self.process = mp.Process(target=self._run)
         self.process.daemon = True
         self.process.start()

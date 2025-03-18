@@ -1,6 +1,6 @@
 import jax
 import jax.numpy as jnp
-from .geo import haversine_distance, calculate_bearing
+from .geo import haversine_distance_jax, calculate_bearing
 
 def calculate_elevation_difference(elev1, elev2):
     """
@@ -55,7 +55,7 @@ def point_delta(arrays, i):
     )
 
     # Calculate distance
-    distance_m = haversine_distance(
+    distance_m = haversine_distance_jax(
         point1[0],
         point1[1],  # lat1, lng1
         point2[0],
