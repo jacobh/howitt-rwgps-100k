@@ -1,7 +1,7 @@
 import numpy as np
 import shapely
 from ..lib.osm import build_spatial_index
-from ..lib.geo import generate_bbox, pad_bbox, numpy_bbox_to_shapely
+from ..lib.geo import generate_bbox, pad_bbox, numpy_bbox_to_shapely, haversine_distances
 from ..models.trip_dimensions import TripDimensions
 from ..models.trip_segments import TripSegmentIndex, TripSegmentIndexes
 import math
@@ -40,6 +40,7 @@ def load_trip_dimensions() -> List[TripDimensions]:
 
 def process_trip_indexes() -> None:
     highway_coords = get_highway_data()
+
     tree = get_spatial_index(highway_coords)
     trips = load_trip_dimensions()
 
@@ -47,13 +48,16 @@ def process_trip_indexes() -> None:
     for trip in trips:
         print(f"Processing trip {trip.id}...")
 
-        # Exclude None values and convert to numpy array.
         trip_coords = np.array(
             [p if p is not None else [np.nan, np.nan] for p in trip.coords]
         )
         trip_distance_m = trip.distance_m
 
-        segment_count = max(1, math.ceil(trip_distance_m / 200))
+        # Calculate segment count based on distance, but ensure segments don't exceed 128 coords
+        min_segments_by_distance = max(1, math.ceil(trip_distance_m / 200))
+        min_segments_by_coords = max(1, math.ceil(len(trip_coords) / 128))
+        segment_count = max(min_segments_by_distance, min_segments_by_coords)
+        
         print(
             f"Trip distance: {trip_distance_m} m, dividing into {segment_count} segments."
         )
@@ -95,6 +99,64 @@ def process_trip_indexes() -> None:
     # for ts in trip_segments_list:
     #     # Using the pydantic's model json() method for pretty printing
     #     print(ts.json())
+
+    for i, trip_segments in enumerate(trip_segments_list):
+        trip_dimensions = trips[i]
+
+        for j, segment in enumerate(trip_segments.segments):
+            # Get start index for this segment
+            start_idx = segment.start_idx
+
+            # Determine end index by looking at next segment or using the end of trip
+            if j < len(trip_segments.segments) - 1:
+                end_idx = trip_segments.segments[j + 1].start_idx
+            else:
+                end_idx = len(trip_dimensions.coords)
+
+            # Extract coordinates for this segment
+            segment_coords = np.array(
+                [p for p in trip_dimensions.coords[start_idx:end_idx] if p is not None]
+            )
+
+            if len(segment_coords) == 0:
+                continue
+
+            def pad_highway(coords, target_length=1024):
+                current_length = len(coords)
+                
+                # If already at or exceeding target length, truncate
+                if current_length >= target_length:
+                    return coords[:target_length]
+                
+                # Calculate padding needed
+                padding_needed = target_length - current_length
+                
+                # Use np.pad with 'edge' mode to repeat the last coordinate
+                padded_coords = np.pad(
+                    coords, 
+                    pad_width=((0, padding_needed), (0, 0)),
+                    mode='edge'
+                )
+                
+                return padded_coords
+
+            candidate_highways_coords = np.array([
+                pad_highway(highway_coords[idx]) 
+                for idx in segment.candidate_highway_indexes
+            ])
+
+            if len(candidate_highways_coords) == 0:
+                continue
+
+            distances = haversine_distances(
+                ref_linestring=segment_coords, target_linestrings=candidate_highways_coords
+            )
+
+            # Now you can use segment_coords for further processing
+            # For example, print the number of coordinates in each segment
+            print(
+                f"Segment {j} of trip {trip_dimensions.id}: {len(segment_coords)} coordinates, {len(segment.candidate_highway_indexes)} candidate highways"
+            )
 
 
 if __name__ == "__main__":
