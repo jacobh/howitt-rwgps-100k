@@ -34,7 +34,7 @@ def load_trip_dimensions() -> List[TripDimensions]:
         return [TripDimensions.model_validate(item) for item in raw]
 
 
-def process_trip_highways() -> None:
+def process_trip_indexes() -> None:
     tree = get_spatial_index()
     trips = load_trip_dimensions()
 
@@ -93,4 +93,4 @@ def process_trip_highways() -> None:
 
 
 if __name__ == "__main__":
-    process_trip_highways()
+    process_trip_indexes()
