@@ -1,7 +1,13 @@
 import numpy as np
+import jax.numpy as jnp
 import shapely
 from ..lib.osm import build_spatial_index
-from ..lib.geo import generate_bbox, pad_bbox, numpy_bbox_to_shapely, haversine_distances
+from ..lib.geo import (
+    generate_bbox,
+    pad_bbox,
+    numpy_bbox_to_shapely,
+    haversine_distances,
+)
 from ..models.trip_dimensions import TripDimensions
 from ..models.trip_segments import TripSegmentIndex, TripSegmentIndexes
 import math
@@ -57,7 +63,7 @@ def process_trip_indexes() -> None:
         min_segments_by_distance = max(1, math.ceil(trip_distance_m / 200))
         min_segments_by_coords = max(1, math.ceil(len(trip_coords) / 128))
         segment_count = max(min_segments_by_distance, min_segments_by_coords)
-        
+
         print(
             f"Trip distance: {trip_distance_m} m, dividing into {segment_count} segments."
         )
@@ -79,7 +85,7 @@ def process_trip_indexes() -> None:
 
             # Generate the bounding box for the segment and pad it.
             bbox2d = generate_bbox(segment_coords)
-            bbox2d = pad_bbox(bbox2d, 250)
+            bbox2d = pad_bbox(bbox2d, 200)
             bbox_shapely = numpy_bbox_to_shapely(bbox2d)
 
             # Obtain candidate highway indexes for this segment.
@@ -121,36 +127,39 @@ def process_trip_indexes() -> None:
             if len(segment_coords) == 0:
                 continue
 
-            def pad_highway(coords, target_length=1024):
+            def pad_linestring(coords, target_length=1024):
                 current_length = len(coords)
-                
+
                 # If already at or exceeding target length, truncate
                 if current_length >= target_length:
                     return coords[:target_length]
-                
+
                 # Calculate padding needed
                 padding_needed = target_length - current_length
-                
+
                 # Use np.pad with 'edge' mode to repeat the last coordinate
                 padded_coords = np.pad(
-                    coords, 
-                    pad_width=((0, padding_needed), (0, 0)),
-                    mode='edge'
+                    coords, pad_width=((0, padding_needed), (0, 0)), mode="edge"
                 )
-                
+
                 return padded_coords
 
-            candidate_highways_coords = np.array([
-                pad_highway(highway_coords[idx]) 
-                for idx in segment.candidate_highway_indexes
-            ])
+            candidate_highways_coords = np.array(
+                [
+                    pad_linestring(highway_coords[idx])
+                    for idx in segment.candidate_highway_indexes
+                ]
+            )
 
             if len(candidate_highways_coords) == 0:
                 continue
 
             distances = haversine_distances(
-                ref_linestring=segment_coords, target_linestrings=candidate_highways_coords
+                ref_linestring=jnp.array(pad_linestring(segment_coords, 128)),
+                target_linestrings=jnp.array(candidate_highways_coords),
             )
+
+            # distances = distances.block_until_ready()
 
             # Now you can use segment_coords for further processing
             # For example, print the number of coordinates in each segment

@@ -1,11 +1,15 @@
+import jax
+import equinox as eqx
+import jax.numpy as jnp
 import numpy as np
 import shapely
 
+@jax.jit
+# @eqx.debug.assert_max_traces(max_traces=1)
 def haversine_distances(
-    ref_linestring: np.ndarray, 
-    target_linestrings: np.ndarray,
-    radius: float = 6371000.0  # Earth radius in meters
-) -> np.ndarray:
+    ref_linestring: jnp.ndarray, 
+    target_linestrings: jnp.ndarray
+) -> jnp.ndarray:
     """
     Calculate haversine distances between reference linestring points and multiple target linestrings.
     
@@ -35,6 +39,8 @@ def haversine_distances(
     ------
     This function can handle large arrays using vectorized operations for efficiency.
     """
+    radius: float = 6371000.0  # Earth radius in meters
+
     # Get dimensions
     n_refs = ref_linestring.shape[0]
     
@@ -43,22 +49,22 @@ def haversine_distances(
     ref_reshaped = ref_linestring.reshape(n_refs, 1, 1, 2)
     
     # Convert to radians - we'll do this after reshaping for proper broadcasting
-    ref_lon = np.radians(ref_reshaped[..., 0])  # Shape (N, 1, 1)
-    ref_lat = np.radians(ref_reshaped[..., 1])  # Shape (N, 1, 1)
-    target_lon = np.radians(target_linestrings[..., 0])  # Shape (L, M)
-    target_lat = np.radians(target_linestrings[..., 1])  # Shape (L, M)
+    ref_lon = jnp.radians(ref_reshaped[..., 0])  # Shape (N, 1, 1)
+    ref_lat = jnp.radians(ref_reshaped[..., 1])  # Shape (N, 1, 1)
+    target_lon = jnp.radians(target_linestrings[..., 0])  # Shape (L, M)
+    target_lat = jnp.radians(target_linestrings[..., 1])  # Shape (L, M)
     
     # Differences with broadcasting
     dlon = target_lon - ref_lon  # Broadcasting to shape (N, L, M)
     dlat = target_lat - ref_lat  # Broadcasting to shape (N, L, M)
     
     # Haversine formula
-    a = np.sin(dlat/2)**2 + np.cos(ref_lat) * np.cos(target_lat) * np.sin(dlon/2)**2
-    c = 2 * np.arcsin(np.sqrt(a))
+    a = jnp.sin(dlat/2)**2 + jnp.cos(ref_lat) * jnp.cos(target_lat) * jnp.sin(dlon/2)**2
+    c = 2 * jnp.arcsin(jnp.sqrt(a))
     distance = radius * c  # Distance in meters
     
     # Transpose the dimensions to get shape (L, N, M)
-    distance = np.transpose(distance, (1, 0, 2))
+    distance = jnp.transpose(distance, (1, 0, 2))
     
     return distance
 
