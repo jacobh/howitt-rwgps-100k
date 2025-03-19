@@ -44,6 +44,60 @@ def load_trip_dimensions() -> List[TripDimensions]:
         return [TripDimensions.model_validate(item) for item in raw]
 
 
+def pad_linestring(coords, target_length=1024):
+    current_length = len(coords)
+
+    # If already at or exceeding target length, truncate
+    if current_length >= target_length:
+        return coords[:target_length]
+
+    # Calculate padding needed
+    padding_needed = target_length - current_length
+
+    # Use np.pad with 'edge' mode to repeat the last coordinate
+    padded_coords = np.pad(
+        coords, pad_width=((0, padding_needed), (0, 0)), mode="edge"
+    )
+
+    return padded_coords
+
+def pad_highways(highways_coords, target_length=512):
+    """
+    Pad the highways_coords array to have target_length highways.
+    If there are fewer than target_length highways, the last highway is repeated.
+    If there are more, the array is truncated.
+    
+    Args:
+        highways_coords: Array of shape (n_highways, n_points, 2) containing highway coordinates
+        target_length: Target number of highways
+        
+    Returns:
+        Padded array of shape (target_length, n_points, 2)
+    """
+    if len(highways_coords) == 0:
+        return np.array([])
+        
+    current_length = len(highways_coords)
+    
+    # If already at or exceeding target length, truncate
+    if current_length >= target_length:
+        return highways_coords[:target_length]
+    
+    # Calculate padding needed
+    padding_needed = target_length - current_length
+    
+    # Use np.pad with 'edge' mode to repeat the last highway
+    # For a 3D array, pad_width needs three tuples, one for each dimension
+    # We only want to pad the first dimension (highways)
+    padded_highways = np.pad(
+        highways_coords, 
+        pad_width=((0, padding_needed), (0, 0), (0, 0)), 
+        mode="edge"
+    )
+    
+    return padded_highways
+
+
 def process_trip_indexes() -> None:
     highway_coords = get_highway_data()
 
@@ -127,23 +181,6 @@ def process_trip_indexes() -> None:
             if len(segment_coords) == 0:
                 continue
 
-            def pad_linestring(coords, target_length=1024):
-                current_length = len(coords)
-
-                # If already at or exceeding target length, truncate
-                if current_length >= target_length:
-                    return coords[:target_length]
-
-                # Calculate padding needed
-                padding_needed = target_length - current_length
-
-                # Use np.pad with 'edge' mode to repeat the last coordinate
-                padded_coords = np.pad(
-                    coords, pad_width=((0, padding_needed), (0, 0)), mode="edge"
-                )
-
-                return padded_coords
-
             candidate_highways_coords = np.array(
                 [
                     pad_linestring(highway_coords[idx])
@@ -153,6 +190,8 @@ def process_trip_indexes() -> None:
 
             if len(candidate_highways_coords) == 0:
                 continue
+
+            candidate_highways_coords = pad_highways(candidate_highways_coords, 256)
 
             distances = haversine_distances(
                 ref_linestring=jnp.array(pad_linestring(segment_coords, 128)),
