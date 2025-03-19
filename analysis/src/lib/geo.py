@@ -1,165 +1,67 @@
-import jax
-import jax.numpy as jnp
 import numpy as np
 import shapely
 
-def degrees_to_radians(degrees: float) -> float:
-    """Convert degrees to radians using JAX"""
-    return degrees * jnp.pi / 180.0
-
-
-def radians_to_degrees(radians: float) -> float:
-    """Convert radians to degrees using JAX"""
-    return radians * 180.0 / jnp.pi
-
-def degrees_to_radians_jax(degrees: jnp.ndarray) -> jnp.ndarray:
-    """Convert degrees to radians using JAX"""
-    return degrees * jnp.pi / 180.0
-
-def radians_to_degrees_jax(radians: jnp.ndarray) -> jnp.ndarray:
-    """Convert radians to degrees using JAX"""
-    return radians * 180.0 / jnp.pi
-
-@jax.jit
-def haversine_distance_jax(p1: jnp.ndarray, p2: jnp.ndarray) -> jnp.ndarray:
+def haversine_distances(
+    ref_linestring: np.ndarray, 
+    target_linestrings: np.ndarray,
+    radius: float = 6371000.0  # Earth radius in meters
+) -> np.ndarray:
     """
-    Calculate the great-circle distance between two points
-    using the haversine formula with JAX.
-
-    Args:
-        lat1, lng1: Latitude and longitude of point 1 in degrees
-        lat2, lng2: Latitude and longitude of point 2 in degrees
-
-    Returns:
-        Distance between points in meters
-    """
-    lng1, lat1 = p1
-    lng2, lat2 = p2
-
-    # Convert lat/lng from degrees to radians
-    lat1_rad = degrees_to_radians(lat1)
-    lng1_rad = degrees_to_radians(lng1)
-    lat2_rad = degrees_to_radians(lat2)
-    lng2_rad = degrees_to_radians(lng2)
-
-    # Haversine formula
-    dlng = lng2_rad - lng1_rad
-    dlat = lat2_rad - lat1_rad
-
-    a = (
-        jnp.sin(dlat / 2.0) ** 2
-        + jnp.cos(lat1_rad) * jnp.cos(lat2_rad) * jnp.sin(dlng / 2.0) ** 2
-    )
-    c = 2.0 * jnp.arctan2(jnp.sqrt(a), jnp.sqrt(1.0 - a))
-
-    # Earth radius in meters
-    R = 6371000.0
-    return R * c
-
-
-def haversine_distance_cpu(p1: np.ndarray, p2: np.ndarray) -> float:
-    """
-    Calculate the great-circle distance between two points
-    using the haversine formula with NumPy.
-
-    Args:
-        p1: A numpy array [longitude, latitude] of point 1 in degrees
-        p2: A numpy array [longitude, latitude] of point 2 in degrees
-
-    Returns:
-        Distance between points in meters
-    """
-    # Extract coordinates
-    lng1, lat1 = p1
-    lng2, lat2 = p2
-
-    # Convert lat/lng from degrees to radians
-    lat1_rad = degrees_to_radians(lat1)
-    lng1_rad = degrees_to_radians(lng1)
-    lat2_rad = degrees_to_radians(lat2)
-    lng2_rad = degrees_to_radians(lng2)
-
-    # Haversine formula
-    dlng = lng2_rad - lng1_rad
-    dlat = lat2_rad - lat1_rad
-
-    a = (
-        np.sin(dlat / 2.0) ** 2
-        + np.cos(lat1_rad) * np.cos(lat2_rad) * np.sin(dlng / 2.0) ** 2
-    )
-    c = 2.0 * np.arctan2(np.sqrt(a), np.sqrt(1.0 - a))
-
-    # Earth radius in meters
-    R = 6371000.0
-    return R * c
-
-@jax.jit
-def calculate_bearing_jax(p1: jnp.ndarray, p2: jnp.ndarray) -> jnp.ndarray:
-    """
-    Calculate the initial bearing between two points using JAX.
-
-    Args:
-        p1: A JAX array [longitude, latitude] of point 1 in degrees
-        p2: A JAX array [longitude, latitude] of point 2 in degrees
-
-    Returns:
-        Bearing in degrees (0-360)
-    """
-    # Extract coordinates
-    lng1, lat1 = p1
-    lng2, lat2 = p2
+    Calculate haversine distances between reference linestring points and multiple target linestrings.
     
-    # Convert lat/lng from degrees to radians
-    lat1_rad = degrees_to_radians(lat1)
-    lng1_rad = degrees_to_radians(lng1)
-    lat2_rad = degrees_to_radians(lat2)
-    lng2_rad = degrees_to_radians(lng2)
-
-    dlng = lng2_rad - lng1_rad
-
-    x = jnp.sin(dlng) * jnp.cos(lat2_rad)
-    y = jnp.cos(lat1_rad) * jnp.sin(lat2_rad) - jnp.sin(lat1_rad) * jnp.cos(
-        lat2_rad
-    ) * jnp.cos(dlng)
-
-    bearing_rad = jnp.arctan2(x, y)
-    # Convert to degrees and normalize to 0-360
-    return (radians_to_degrees_jax(bearing_rad) + 360.0) % 360.0
-
-def vectorized_haversine_distances(reference_point: jnp.ndarray, points: jnp.ndarray) -> jnp.ndarray:
-    """
-    Calculate haversine distances from a reference point to multiple points.
+    Parameters:
+    -----------
+    ref_linestring : np.ndarray
+        Array of reference linestring points with shape (N, 2) where each point is [lon, lat]
+    target_linestrings : np.ndarray
+        Array of target linestrings with shape (L, M, 2) where:
+        - L is the number of linestrings
+        - M is the number of points per linestring
+        - 2 represents [lon, lat] coordinates
+    radius : float, optional
+        Earth radius in meters, default is 6371000.0
     
-    Args:
-        reference_point: A single point [lat, lng] in degrees
-        points: Array of points with shape (n, 2) where each row is [lat, lng] in degrees
-        
     Returns:
-        Array of distances in meters from reference point to each point in points
+    --------
+    np.ndarray
+        Array of shape (L, N, M) containing haversine distances in meters
+        where distances[j, i, k] is the distance between ref_linestring[i] and 
+        target_linestrings[j, k]
+        - First dimension (L): index of target linestring
+        - Second dimension (N): index of reference point
+        - Third dimension (M): index of target point
+    
+    Notes:
+    ------
+    This function can handle large arrays using vectorized operations for efficiency.
     """
-    # Extract coordinates
-    ref_lng, ref_lat,  = reference_point
+    # Get dimensions
+    n_refs = ref_linestring.shape[0]
     
-    # Convert to radians
-    ref_lat_rad = degrees_to_radians(ref_lat)
-    ref_lng_rad = degrees_to_radians(ref_lng)
-    points_lng_rad = degrees_to_radians_jax(points[:, 0])
-    points_lat_rad = degrees_to_radians_jax(points[:, 1])
+    # Reshape reference points to allow broadcasting
+    # Shape: (N, 1, 1, 2) for broadcasting with target linestrings
+    ref_reshaped = ref_linestring.reshape(n_refs, 1, 1, 2)
     
-    # Calculate differences
-    dlng = points_lng_rad - ref_lng_rad
-    dlat = points_lat_rad - ref_lat_rad
+    # Convert to radians - we'll do this after reshaping for proper broadcasting
+    ref_lon = np.radians(ref_reshaped[..., 0])  # Shape (N, 1, 1)
+    ref_lat = np.radians(ref_reshaped[..., 1])  # Shape (N, 1, 1)
+    target_lon = np.radians(target_linestrings[..., 0])  # Shape (L, M)
+    target_lat = np.radians(target_linestrings[..., 1])  # Shape (L, M)
+    
+    # Differences with broadcasting
+    dlon = target_lon - ref_lon  # Broadcasting to shape (N, L, M)
+    dlat = target_lat - ref_lat  # Broadcasting to shape (N, L, M)
     
     # Haversine formula
-    a = (
-        jnp.sin(dlat / 2.0) ** 2
-        + jnp.cos(ref_lat_rad) * jnp.cos(points_lat_rad) * jnp.sin(dlng / 2.0) ** 2
-    )
-    c = 2.0 * jnp.arctan2(jnp.sqrt(a), jnp.sqrt(1.0 - a))
+    a = np.sin(dlat/2)**2 + np.cos(ref_lat) * np.cos(target_lat) * np.sin(dlon/2)**2
+    c = 2 * np.arcsin(np.sqrt(a))
+    distance = radius * c  # Distance in meters
     
-    # Earth radius in meters
-    R = 6371000.0
-    return R * c
+    # Transpose the dimensions to get shape (L, N, M)
+    distance = np.transpose(distance, (1, 0, 2))
+    
+    return distance
+
 
 def generate_bbox(coords: np.ndarray) -> np.ndarray:
     """
