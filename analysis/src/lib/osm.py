@@ -24,7 +24,7 @@ def convert_all_highway_features_to_numpy(highway_features: List[geojson.Feature
     return [convert_highway_geometry_to_numpy(highway_feature) for highway_feature in highway_features]
 
 
-def build_spatial_index(highway_coords: List[np.ndarray]) -> shapely.STRtree:
+def build_spatial_index(highway_coords: np.ndarray) -> shapely.STRtree:
     """Build spatial index for highway coordinates"""
 
     geometries: List[Union[shapely.geometry.LineString, shapely.geometry.Point]] = []

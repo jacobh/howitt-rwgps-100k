@@ -9,7 +9,7 @@ from typing import List
 import msgpack
 
 
-def get_spatial_index() -> shapely.STRtree:
+def get_highway_data() -> np.ndarray:
     npz_path: str = "../data/highways_coords.npz"
 
     print(f"Loading highway coordinates from '{npz_path}'...")
@@ -17,6 +17,10 @@ def get_spatial_index() -> shapely.STRtree:
     coords = data["coords"]
     print(f"Total features loaded: {len(coords)}")
 
+    return np.array(coords)
+
+
+def get_spatial_index(coords: np.ndarray) -> shapely.STRtree:
     tree = build_spatial_index(coords)
 
     print(f"STRTree built with {len(tree)} geometries.")
@@ -35,7 +39,8 @@ def load_trip_dimensions() -> List[TripDimensions]:
 
 
 def process_trip_indexes() -> None:
-    tree = get_spatial_index()
+    highway_coords = get_highway_data()
+    tree = get_spatial_index(highway_coords)
     trips = load_trip_dimensions()
 
     trip_segments_list: List[TripSegmentIndexes] = []
