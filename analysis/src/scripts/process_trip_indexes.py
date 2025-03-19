@@ -1,4 +1,5 @@
 import numpy as np
+import jax
 import jax.numpy as jnp
 import shapely
 from ..lib.osm import build_spatial_index
@@ -13,6 +14,9 @@ from ..models.trip_segments import TripSegmentIndex, TripSegmentIndexes
 import math
 from typing import List
 import msgpack
+
+import os
+os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 
 
 def get_highway_data() -> np.ndarray:
@@ -98,6 +102,9 @@ def pad_highways(highways_coords, target_length=512):
     return padded_highways
 
 
+batch_haversine = jax.jit(jax.vmap(haversine_distances, in_axes=(0, 0)))
+
+
 def process_trip_indexes() -> None:
     highway_coords = get_highway_data()
 
@@ -163,6 +170,7 @@ def process_trip_indexes() -> None:
     for i, trip_segments in enumerate(trip_segments_list):
         trip_dimensions = trips[i]
 
+        # distance_tasks = []
         for j, segment in enumerate(trip_segments.segments):
             # Get start index for this segment
             start_idx = segment.start_idx
@@ -193,10 +201,10 @@ def process_trip_indexes() -> None:
 
             candidate_highways_coords = pad_highways(candidate_highways_coords, 256)
 
-            distances = haversine_distances(
-                ref_linestring=jnp.array(pad_linestring(segment_coords, 128)),
-                target_linestrings=jnp.array(candidate_highways_coords),
-            )
+            # distance_tasks.append(
+            #     (jnp.array(pad_linestring(segment_coords, 128)), jnp.array(candidate_highways_coords))
+            # )
+            distances = haversine_distances(jnp.array(pad_linestring(segment_coords, 128)), jnp.array(candidate_highways_coords))
 
             # distances = distances.block_until_ready()
 
@@ -205,6 +213,53 @@ def process_trip_indexes() -> None:
             print(
                 f"Segment {j} of trip {trip_dimensions.id}: {len(segment_coords)} coordinates, {len(segment.candidate_highway_indexes)} candidate highways"
             )
+
+        # # Extract arrays from the list of tuples
+        # # Process in minibatches of 64 segments
+        # batch_size = 32
+        # all_distances = []
+        
+        # for i in range(0, len(distance_tasks), batch_size):
+        #     batch_tasks = distance_tasks[i:i+batch_size]
+            
+        #     # Skip if batch is empty
+        #     if not batch_tasks:
+        #         continue
+                
+        #     print(f"Processing minibatch {i//batch_size + 1} with {len(batch_tasks)} segments")
+            
+        #     # Extract arrays from the current batch
+        #     batch_ref_linestrings = jnp.array([task[0] for task in batch_tasks])
+        #     batch_target_linestrings = jnp.array([task[1] for task in batch_tasks])
+
+        #     # print(batch_ref_linestrings.shape)
+        #     # print(batch_target_linestrings.shape)
+
+        #     batch_ref_linestrings = jnp.pad(
+        #         batch_ref_linestrings,
+        #         pad_width=[(0, batch_size - len(batch_tasks)), (0, 0), (0, 0)],
+        #         mode="empty"
+        #     )
+        #     batch_target_linestrings = jnp.pad(
+        #         batch_target_linestrings,
+        #         pad_width=[(0, batch_size - len(batch_tasks)), (0, 0), (0, 0), (0, 0)],
+        #         mode="empty"
+        #     )
+            
+        #     # Use vmap to process this batch
+        #     batch_distances = batch_haversine(batch_ref_linestrings, batch_target_linestrings)
+            
+        #     # # Force computation to complete for this batch
+        #     # batch_distances = batch_distances.block_until_ready()
+            
+        #     # Store the results
+        #     # all_distances.append(batch_distances)
+            
+        # # Combine results from all batches if needed
+        # if all_distances:
+        #     distances = jnp.concatenate(all_distances, axis=0)
+        # else:
+        #     distances = jnp.array([])
 
 
 if __name__ == "__main__":

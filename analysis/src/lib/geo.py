@@ -5,7 +5,7 @@ import numpy as np
 import shapely
 
 @jax.jit
-# @eqx.debug.assert_max_traces(max_traces=1)
+@eqx.debug.assert_max_traces(max_traces=1)
 def haversine_distances(
     ref_linestring: jnp.ndarray, 
     target_linestrings: jnp.ndarray
