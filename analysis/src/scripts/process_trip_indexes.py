@@ -138,6 +138,20 @@ def pad_highways(
 
     return padded_highways, padded_mask
 
+def find_candidate_highway_idxs(segment_coords: np.ndarray, tree: shapely.STRtree) -> List[int]:
+    segment_coords = segment_coords[~np.isnan(segment_coords).any(axis=1)]
+
+    if len(segment_coords) == 0:
+        return []
+
+    # Generate the bounding box for the segment and pad it.
+    bbox2d = generate_bbox(segment_coords)
+    bbox2d = pad_bbox(bbox2d, 200)
+    bbox_shapely = numpy_bbox_to_shapely(bbox2d)
+
+    # Obtain candidate highway indexes for this segment.
+    return list(tree.query(bbox_shapely))
+
 
 def find_best_matching_highway_idx(
     segment: TripSegmentIndex, segment_coords: np.ndarray, highway_coords: np.ndarray
@@ -229,19 +243,8 @@ def process_trip_indexes() -> None:
                 continue
             start_idx = int(split[0])
             segment_coords = trip_coords[split]
-            segment_coords = segment_coords[~np.isnan(segment_coords).any(axis=1)]
-
-            if len(segment_coords) == 0:
-                continue
-
-            # Generate the bounding box for the segment and pad it.
-            bbox2d = generate_bbox(segment_coords)
-            bbox2d = pad_bbox(bbox2d, 200)
-            bbox_shapely = numpy_bbox_to_shapely(bbox2d)
-
-            # Obtain candidate highway indexes for this segment.
-            highway_idxs: List[int] = list(tree.query(bbox_shapely))
-            # print(f"Segment starting at index {start_idx} for trip {trip.id} has {len(highway_idxs)} highway segments.")
+            
+            highway_idxs = find_candidate_highway_idxs(segment_coords, tree)
 
             segment_obj = TripSegmentIndex(
                 start_idx=start_idx, candidate_highway_indexes=highway_idxs
