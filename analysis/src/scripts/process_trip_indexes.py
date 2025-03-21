@@ -11,7 +11,7 @@ from ..lib.geo import (
 from ..models.trip_dimensions import TripDimensions
 from ..models.trip_segments import TripSegmentIndex, TripSegmentIndexes
 import math
-from typing import List
+from typing import List, Optional
 import msgpack
 
 import os
@@ -139,6 +139,62 @@ def pad_highways(
     return padded_highways, padded_mask
 
 
+def find_best_matching_highway_idx(
+    segment: TripSegmentIndex, segment_coords: np.ndarray, highway_coords: np.ndarray
+) -> Optional[int]:
+    candidate_highways_coords_and_padding_masks = [
+        pad_linestring(highway_coords[idx]) for idx in segment.candidate_highway_indexes
+    ]
+
+    if len(candidate_highways_coords_and_padding_masks) == 0:
+        return None
+
+    candidate_highways_coords = np.array(
+        [x[0] for x in candidate_highways_coords_and_padding_masks]
+    )
+    candidate_highways_masks = np.array(
+        [x[1] for x in candidate_highways_coords_and_padding_masks]
+    )
+
+    candidate_highways_coords, candidate_highways_masks = pad_highways(
+        candidate_highways_coords, candidate_highways_masks, 256
+    )
+
+    ref_coords, ref_mask = pad_linestring(segment_coords, 128)
+
+    # Calculate mean minimum distances
+    mean_min_distances_result = mean_min_distances(
+        ref_linestring=jnp.array(ref_coords),
+        target_linestrings=jnp.array(candidate_highways_coords),
+        ref_mask=jnp.array(ref_mask),
+        target_masks=jnp.array(candidate_highways_masks),
+    )
+
+    # Convert to numpy array
+    mean_min_distances_result = np.array(mean_min_distances_result)
+
+    # Get only the distances for the actual highways (not padding)
+    # We know there are len(segment.candidate_highway_indexes) real highways
+    valid_distances = mean_min_distances_result[
+        : len(segment.candidate_highway_indexes)
+    ]
+
+    # Find the index of the highway with minimum mean distance
+    if len(valid_distances) > 0:
+        min_distance_idx = np.argmin(valid_distances)
+        best_matched_highway_idx = segment.candidate_highway_indexes[min_distance_idx]
+        min_distance = valid_distances[min_distance_idx]
+
+        print(
+            f"  - Best match: Highway idx {best_matched_highway_idx} with mean distance {min_distance:.2f} meters"
+        )
+    else:
+        best_matched_highway_idx = None
+        print("  - No valid highways found for this segment")
+
+    return best_matched_highway_idx
+
+
 def process_trip_indexes() -> None:
     highway_coords = get_highway_data()
 
@@ -223,58 +279,9 @@ def process_trip_indexes() -> None:
             if len(segment_coords) == 0:
                 continue
 
-            candidate_highways_coords_and_padding_masks = [
-                pad_linestring(highway_coords[idx])
-                for idx in segment.candidate_highway_indexes
-            ]
-
-            if len(candidate_highways_coords_and_padding_masks) == 0:
-                continue
-
-            candidate_highways_coords = np.array(
-                [x[0] for x in candidate_highways_coords_and_padding_masks]
+            best_matched_highway_idx = find_best_matching_highway_idx(
+                segment, segment_coords, highway_coords
             )
-            candidate_highways_masks = np.array(
-                [x[1] for x in candidate_highways_coords_and_padding_masks]
-            )
-
-            candidate_highways_coords, candidate_highways_masks = pad_highways(
-                candidate_highways_coords, candidate_highways_masks, 256
-            )
-
-            ref_coords, ref_mask = pad_linestring(segment_coords, 128)
-
-            # Calculate mean minimum distances
-            mean_min_distances_result = mean_min_distances(
-                ref_linestring=jnp.array(ref_coords),
-                target_linestrings=jnp.array(candidate_highways_coords),
-                ref_mask=jnp.array(ref_mask),
-                target_masks=jnp.array(candidate_highways_masks),
-            )
-
-            # Convert to numpy array
-            mean_min_distances_result = np.array(mean_min_distances_result)
-
-            # Get only the distances for the actual highways (not padding)
-            # We know there are len(segment.candidate_highway_indexes) real highways
-            valid_distances = mean_min_distances_result[
-                : len(segment.candidate_highway_indexes)
-            ]
-
-            # Find the index of the highway with minimum mean distance
-            if len(valid_distances) > 0:
-                min_distance_idx = np.argmin(valid_distances)
-                best_matched_highway_idx = segment.candidate_highway_indexes[
-                    min_distance_idx
-                ]
-                min_distance = valid_distances[min_distance_idx]
-
-                print(
-                    f"  - Best match: Highway idx {best_matched_highway_idx} with mean distance {min_distance:.2f} meters"
-                )
-            else:
-                best_matched_highway_idx = None
-                print("  - No valid highways found for this segment")
 
             # Now you can use segment_coords for further processing
             # For example, print the number of coordinates in each segment
