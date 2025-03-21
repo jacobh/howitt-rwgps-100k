@@ -4,8 +4,7 @@ import jax.numpy as jnp
 import numpy as np
 import shapely
 
-@jax.jit
-@eqx.debug.assert_max_traces(max_traces=1)
+
 def haversine_distances(
     ref_linestring: jnp.ndarray, 
     target_linestrings: jnp.ndarray
@@ -68,7 +67,8 @@ def haversine_distances(
     
     return distance
 
-
+@jax.jit
+@eqx.debug.assert_max_traces(max_traces=1)
 def mean_min_distances(
     ref_linestring: jnp.ndarray, 
     target_linestrings: jnp.ndarray,
@@ -106,7 +106,11 @@ def mean_min_distances(
     
     # 2. Apply target masks to set distances from/to padded target points to infinity
     # This ensures they won't be selected as minimums
+    # Reshape target_masks to (L, 1, M) for proper broadcasting with distances (L, N, M)
+    n_refs = ref_linestring.shape[0]
     expanded_target_masks = jnp.expand_dims(target_masks, 1)  # Shape (L, 1, M)
+    # Repeat the mask for each reference point
+    expanded_target_masks = jnp.repeat(expanded_target_masks, n_refs, axis=1)  # Shape (L, N, M)
     
     # Set distances to padded target points to infinity
     masked_distances = jnp.where(expanded_target_masks, distances, jnp.inf)
