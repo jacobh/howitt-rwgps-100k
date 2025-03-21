@@ -69,6 +69,78 @@ def haversine_distances(
     return distance
 
 
+def mean_min_distances(
+    ref_linestring: jnp.ndarray, 
+    target_linestrings: jnp.ndarray,
+    ref_mask: jnp.ndarray,
+    target_masks: jnp.ndarray
+) -> jnp.ndarray:
+    """
+    Calculate the mean of minimum distances between a reference linestring and multiple target linestrings,
+    accounting for padding in both the reference linestring and target linestrings.
+    
+    Parameters:
+    -----------
+    ref_linestring : jnp.ndarray
+        Array of reference linestring points with shape (N, 2) where each point is [lon, lat]
+    target_linestrings : jnp.ndarray
+        Array of target linestrings with shape (L, M, 2), where some linestrings may be
+        entirely padding (all points masked out)
+    ref_mask : jnp.ndarray
+        Boolean mask of shape (N,) where True indicates valid points and False indicates padding
+        in the reference linestring.
+    target_masks : jnp.ndarray
+        Boolean mask of shape (L, M) where True indicates valid points and False indicates padding
+        in the target linestrings. For entirely padded targets, all values in that row will be False.
+    
+    Returns:
+    --------
+    jnp.ndarray
+        Array of shape (L,) containing the mean minimum distance from each valid reference
+        point to each target linestring. Returns NaN for:
+        - Entirely padded target linestrings (all target mask values are False)
+        - Cases where all reference points are masked out
+    """
+    # 1. Compute distances between reference points and target linestrings
+    distances = haversine_distances(ref_linestring, target_linestrings)
+    
+    # 2. Apply target masks to set distances from/to padded target points to infinity
+    # This ensures they won't be selected as minimums
+    expanded_target_masks = jnp.expand_dims(target_masks, 1)  # Shape (L, 1, M)
+    
+    # Set distances to padded target points to infinity
+    masked_distances = jnp.where(expanded_target_masks, distances, jnp.inf)
+    
+    # 3. For each reference point, find the minimum distance to each target linestring
+    # For entirely padded target linestrings, this will be infinity for all reference points
+    min_distances = jnp.min(masked_distances, axis=2)  # Shape (L, N)
+    
+    # 4. Apply reference mask to exclude padded reference points from the mean calculation
+    expanded_ref_mask = jnp.expand_dims(ref_mask, 0)  # Shape (1, N)
+    
+    # Calculate mean only over valid reference points
+    valid_distances = jnp.where(expanded_ref_mask, min_distances, 0.0)
+    valid_ref_counts = jnp.sum(expanded_ref_mask, axis=1)  # Shape (L,)
+    
+    # Calculate sum of valid distances
+    sum_valid_distances = jnp.sum(valid_distances, axis=1)
+    
+    # 5. Identify completely padded target linestrings
+    valid_target_counts = jnp.sum(target_masks, axis=1)  # Shape (L,)
+    has_valid_targets = valid_target_counts > 0  # Targets with at least one valid point
+    
+    # 6. Calculate mean distances, handling edge cases
+    mean_distances = sum_valid_distances / valid_ref_counts
+    
+    # Return NaN for:
+    # - Completely padded target linestrings (all mask values are False)
+    # - Cases where all reference points are masked out
+    valid_computation = (valid_ref_counts > 0) & has_valid_targets
+    mean_distances = jnp.where(valid_computation, mean_distances, jnp.nan)
+    
+    return mean_distances
+
+
 def generate_bbox(coords: np.ndarray) -> np.ndarray:
     """
     Generate a bounding box for a trip as a 2x2 matrix.
