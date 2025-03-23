@@ -14,29 +14,23 @@ def haversine_distances(
     
     Parameters:
     -----------
-    ref_linestring : np.ndarray
+    ref_linestring : jnp.ndarray
         Array of reference linestring points with shape (N, 2) where each point is [lon, lat]
-    target_linestrings : np.ndarray
+    target_linestrings : jnp.ndarray
         Array of target linestrings with shape (L, M, 2) where:
         - L is the number of linestrings
         - M is the number of points per linestring
         - 2 represents [lon, lat] coordinates
-    radius : float, optional
-        Earth radius in meters, default is 6371000.0
     
     Returns:
     --------
-    np.ndarray
-        Array of shape (L, N, M) containing haversine distances in meters
-        where distances[j, i, k] is the distance between ref_linestring[i] and 
+    jnp.ndarray
+        Array of shape (L, M, N) containing haversine distances in meters
+        where distances[j, k, i] is the distance between ref_linestring[i] and 
         target_linestrings[j, k]
         - First dimension (L): index of target linestring
-        - Second dimension (N): index of reference point
-        - Third dimension (M): index of target point
-    
-    Notes:
-    ------
-    This function can handle large arrays using vectorized operations for efficiency.
+        - Second dimension (M): index of target point
+        - Third dimension (N): index of reference point
     """
     radius: float = 6371000.0  # Earth radius in meters
 
@@ -44,28 +38,29 @@ def haversine_distances(
     n_refs = ref_linestring.shape[0]
     
     # Reshape reference points to allow broadcasting
-    # Shape: (N, 1, 1, 2) for broadcasting with target linestrings
-    ref_reshaped = ref_linestring.reshape(n_refs, 1, 1, 2)
+    # Shape: (1, 1, N, 2) for broadcasting with target linestrings
+    ref_reshaped = ref_linestring.reshape(1, 1, n_refs, 2)
     
     # Convert to radians - we'll do this after reshaping for proper broadcasting
-    ref_lon = jnp.radians(ref_reshaped[..., 0])  # Shape (N, 1, 1)
-    ref_lat = jnp.radians(ref_reshaped[..., 1])  # Shape (N, 1, 1)
+    ref_lon = jnp.radians(ref_reshaped[..., 0])  # Shape (1, 1, N)
+    ref_lat = jnp.radians(ref_reshaped[..., 1])  # Shape (1, 1, N)
     target_lon = jnp.radians(target_linestrings[..., 0])  # Shape (L, M)
     target_lat = jnp.radians(target_linestrings[..., 1])  # Shape (L, M)
     
+    # Reshape target coordinates to (L, M, 1) for broadcasting
+    target_lon = jnp.expand_dims(target_lon, -1)  # Shape (L, M, 1)
+    target_lat = jnp.expand_dims(target_lat, -1)  # Shape (L, M, 1)
+    
     # Differences with broadcasting
-    dlon = target_lon - ref_lon  # Broadcasting to shape (N, L, M)
-    dlat = target_lat - ref_lat  # Broadcasting to shape (N, L, M)
+    dlon = target_lon - ref_lon  # Broadcasting to shape (L, M, N)
+    dlat = target_lat - ref_lat  # Broadcasting to shape (L, M, N)
     
     # Haversine formula
     a = jnp.sin(dlat/2)**2 + jnp.cos(ref_lat) * jnp.cos(target_lat) * jnp.sin(dlon/2)**2
     c = 2 * jnp.arcsin(jnp.sqrt(a))
     distance = radius * c  # Distance in meters
     
-    # Transpose the dimensions to get shape (L, N, M)
-    distance = jnp.transpose(distance, (1, 0, 2))
-    
-    return distance
+    return distance  # Shape (L, M, N)
 
 @jax.jit
 @eqx.debug.assert_max_traces(max_traces=24)
@@ -83,9 +78,12 @@ def mean_min_distances(
     -----------
     ref_linestring : jnp.ndarray
         Array of reference linestring points with shape (N, 2) where each point is [lon, lat]
+        and N is the number of points in the reference linestring
     target_linestrings : jnp.ndarray
-        Array of target linestrings with shape (L, M, 2), where some linestrings may be
-        entirely padding (all points masked out)
+        Array of target linestrings with shape (L, M, 2) where:
+        - L is the number of target linestrings
+        - M is the number of points per target linestring
+        - 2 represents [lon, lat] coordinates
     ref_mask : jnp.ndarray
         Boolean mask of shape (N,) where True indicates valid points and False indicates padding
         in the reference linestring.
@@ -97,27 +95,27 @@ def mean_min_distances(
     --------
     jnp.ndarray
         Array of shape (L,) containing the mean minimum distance from each valid reference
-        point to each target linestring. Returns NaN for:
+        point to each target linestring. Each value represents:
+        - For each target linestring: the average of the minimum distances from each valid 
+          reference point to any valid point in that target linestring
+        
+        Returns NaN for:
         - Entirely padded target linestrings (all target mask values are False)
         - Cases where all reference points are masked out
     """
     # 1. Compute distances between reference points and target linestrings
-    distances = haversine_distances(ref_linestring, target_linestrings)
+    distances = haversine_distances(ref_linestring, target_linestrings)  # Shape (L, M, N)
     
     # 2. Apply target masks to set distances from/to padded target points to infinity
-    # This ensures they won't be selected as minimums
-    # Reshape target_masks to (L, 1, M) for proper broadcasting with distances (L, N, M)
-    n_refs = ref_linestring.shape[0]
-    expanded_target_masks = jnp.expand_dims(target_masks, 1)  # Shape (L, 1, M)
-    # Repeat the mask for each reference point
-    expanded_target_masks = jnp.repeat(expanded_target_masks, n_refs, axis=1)  # Shape (L, N, M)
+    # Reshape target_masks to (L, M, 1) for proper broadcasting with distances (L, M, N)
+    expanded_target_masks = jnp.expand_dims(target_masks, -1)  # Shape (L, M, 1)
     
     # Set distances to padded target points to infinity
     masked_distances = jnp.where(expanded_target_masks, distances, jnp.inf)
     
     # 3. For each reference point, find the minimum distance to each target linestring
-    # For entirely padded target linestrings, this will be infinity for all reference points
-    min_distances = jnp.min(masked_distances, axis=2)  # Shape (L, N)
+    # We need to find min over dimension M
+    min_distances = jnp.min(masked_distances, axis=1)  # Shape (L, N)
     
     # 4. Apply reference mask to exclude padded reference points from the mean calculation
     expanded_ref_mask = jnp.expand_dims(ref_mask, 0)  # Shape (1, N)
