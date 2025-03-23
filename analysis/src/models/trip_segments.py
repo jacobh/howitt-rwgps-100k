@@ -4,7 +4,9 @@ from .rwgps import ActivityType
 
 
 class TripSegmentIndex(BaseModel):
+    idx: int
     start_idx: int
+    end_idx: int
     candidate_highway_indexes: List[int]
 
 

@@ -353,16 +353,28 @@ def build_trip_segment_indexes(
         indices = np.arange(len(trip_coords))
         indices_splits = np.array_split(indices, segment_count)
 
-        for split in indices_splits:
+        for idx, split in enumerate(indices_splits):
             if len(split) == 0:
                 continue
             start_idx = int(split[0])
+            
+            # Calculate end_idx based on the next segment or end of trip
+            if idx < len(indices_splits) - 1:
+                # If not the last segment, end_idx is the start of the next segment
+                end_idx = int(indices_splits[idx + 1][0])
+            else:
+                # If this is the last segment, end_idx is the end of the trip
+                end_idx = len(trip_coords)
+                
             segment_coords = trip_coords[split]
 
             highway_idxs = find_candidate_highway_idxs(segment_coords, tree)
 
             segment_obj = TripSegmentIndex(
-                start_idx=start_idx, candidate_highway_indexes=highway_idxs
+                idx=idx,
+                start_idx=start_idx,
+                end_idx=end_idx,
+                candidate_highway_indexes=highway_idxs
             )
             segments.append(segment_obj)
 
@@ -390,15 +402,10 @@ def process_trip_segments() -> None:
         trip_dimensions = trips[i]
 
         # distance_tasks = []
-        for j, segment in enumerate(trip_segments.segments):
+        for segment in trip_segments.segments:
             # Get start index for this segment
             start_idx = segment.start_idx
-
-            # Determine end index by looking at next segment or using the end of trip
-            if j < len(trip_segments.segments) - 1:
-                end_idx = trip_segments.segments[j + 1].start_idx
-            else:
-                end_idx = len(trip_dimensions.coords)
+            end_idx = segment.end_idx
 
             # Extract coordinates for this segment
             segment_coords = np.array(
@@ -415,7 +422,7 @@ def process_trip_segments() -> None:
             # Now you can use segment_coords for further processing
             # For example, print the number of coordinates in each segment
             print(
-                f"Segment {j} of trip {trip_dimensions.id}: {len(segment_coords)} coordinates, {len(segment.candidate_highway_indexes)} candidate highways"
+                f"Segment {segment.idx} of trip {trip_dimensions.id}: {len(segment_coords)} coordinates, {len(segment.candidate_highway_indexes)} candidate highways"
             )
 
 
