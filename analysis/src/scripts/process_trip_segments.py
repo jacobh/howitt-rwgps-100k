@@ -142,6 +142,42 @@ def pad_linestrings(linestrings: List[np.ndarray], target_length=1024) -> tuple[
     
     return padded_linestrings, masks
 
+ADAPTIVE_LINESTRING_TARGET_LENGTHS = [128, 256, 512, 1024]
+def pad_linestrings_adaptive(linestrings: list[np.ndarray]) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Adaptively pad a list of linestrings to the smallest target length from
+    ADAPTIVE_LINESTRING_TARGET_LENGTHS that is >= the maximum length of any linestring.
+
+    Parameters:
+    -----------
+    linestrings : list[np.ndarray]
+        List of linestring coordinate arrays, where each array has shape (N, 2)
+        N can vary between linestrings
+        Each point is [lon, lat]
+
+    Returns:
+    --------
+    tuple[np.ndarray, np.ndarray]:
+        - Padded coordinates with shape (L, target_length, 2) where L is the number of linestrings
+        - Boolean mask with shape (L, target_length) where True indicates original points
+          and False indicates padding
+    """
+    # Handle empty list case
+    if not linestrings:
+        return np.array([]), np.array([])
+    
+    # Find the maximum length of any linestring in the list
+    max_linestring_length = max(len(linestring) for linestring in linestrings)
+    
+    # Find the smallest target length from ADAPTIVE_LINESTRING_TARGET_LENGTHS 
+    # that is >= max_linestring_length
+    target_length = next(
+        (length for length in ADAPTIVE_LINESTRING_TARGET_LENGTHS if length >= max_linestring_length),
+        ADAPTIVE_LINESTRING_TARGET_LENGTHS[-1]  # Use the largest if none are sufficient
+    )
+    
+    # Use the existing pad_linestrings function with our adaptive target_length
+    return pad_linestrings(linestrings, target_length)
 
 def pad_highways(
     highways_coords: np.ndarray, highways_mask: np.ndarray, target_length=512
@@ -193,15 +229,13 @@ def pad_highways(
     return padded_highways, padded_mask
 
 
-ADAPTIVE_TARGET_LENGTHS = [8, 32, 64, 128, 256, 512]
-
-
+ADAPTIVE_HIGHWAYS_TARGET_LENGTHS = [8, 32, 64, 128, 256, 512]
 def pad_highways_adaptive(
     highways_coords: np.ndarray, highways_mask: np.ndarray
 ) -> tuple[np.ndarray, np.ndarray]:
     """
     Adaptively pad the highways_coords array to the smallest target length from
-    ADAPTIVE_TARGET_LENGTHS that is >= the actual number of highways.
+    ADAPTIVE_HIGHWAYS_TARGET_LENGTHS that is >= the actual number of highways.
 
     Args:
         highways_coords: Array of shape (n_highways, n_points, 2) containing highway coordinates
@@ -220,8 +254,8 @@ def pad_highways_adaptive(
 
     # Find the smallest target length that is >= highways_count
     target_length = next(
-        (length for length in ADAPTIVE_TARGET_LENGTHS if length >= highways_count),
-        ADAPTIVE_TARGET_LENGTHS[-1],
+        (length for length in ADAPTIVE_HIGHWAYS_TARGET_LENGTHS if length >= highways_count),
+        ADAPTIVE_HIGHWAYS_TARGET_LENGTHS[-1],
     )
 
     # Use the existing pad_highways function with our adaptive target_length
@@ -250,8 +284,8 @@ def find_best_matching_highway_idx(
 ) -> Optional[int]:
     candidate_highways_linestrings = [highway_coords[idx] for idx in segment.candidate_highway_indexes]
 
-    candidate_highways_coords, candidate_highways_masks = pad_linestrings(
-        candidate_highways_linestrings, 1024
+    candidate_highways_coords, candidate_highways_masks = pad_linestrings_adaptive(
+        candidate_highways_linestrings
     )
 
     candidate_highways_coords, candidate_highways_masks = pad_highways_adaptive(

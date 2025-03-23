@@ -68,7 +68,7 @@ def haversine_distances(
     return distance
 
 @jax.jit
-@eqx.debug.assert_max_traces(max_traces=6)
+@eqx.debug.assert_max_traces(max_traces=24)
 def mean_min_distances(
     ref_linestring: jnp.ndarray, 
     target_linestrings: jnp.ndarray,
