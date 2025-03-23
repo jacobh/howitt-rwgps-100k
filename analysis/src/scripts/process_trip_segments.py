@@ -8,7 +8,7 @@ from ..lib.geo import (
     numpy_bbox_to_shapely,
     mean_min_distances,
     linestring_distance,
-    linestring_offset
+    linestring_offset,
 )
 from ..lib.aggregates import agg_elevations, agg_moving_time_secs
 from ..models.trip_dimensions import TripDimensions
@@ -39,36 +39,39 @@ def get_highway_data() -> np.ndarray:
 
     return np.array(coords)
 
+
 def get_boundary_data() -> List[shapely.Polygon]:
     """
     Load boundary data from GeoJSON file and convert to shapely polygons.
-    
+
     For MultiPolygon geometries, only the first polygon is kept.
-    
+
     Returns:
         List[shapely.Polygon]: List of shapely Polygon objects
     """
     boundary_path: str = "../data/aus_boundaries_polygons.json"
     print(f"Loading boundary data from '{boundary_path}'...")
-    
+
     with open(boundary_path, "r") as f:
         boundary_data = json.load(f)
-    
+
     features = boundary_data["features"]
     print(f"Loaded {len(features)} boundary features")
-    
+
     boundaries = []
     for feature in features:
         geometry_type = feature["geometry"]["type"]
-        
+
         if geometry_type == "Polygon":
             # Convert Polygon to shapely Polygon
             if len(feature["geometry"]["coordinates"]) > 0:
-                polygon = shapely.geometry.Polygon(feature["geometry"]["coordinates"][0])
+                polygon = shapely.geometry.Polygon(
+                    feature["geometry"]["coordinates"][0]
+                )
             else:
                 polygon = shapely.geometry.Polygon()
             boundaries.append(polygon)
-        
+
         elif geometry_type == "MultiPolygon":
             # For MultiPolygon, take only the first polygon
             # Note that MultiPolygon coordinates are structured as [polygon_coords, ...]
@@ -76,12 +79,14 @@ def get_boundary_data() -> List[shapely.Polygon]:
             first_polygon_coords = feature["geometry"]["coordinates"][0]
             polygon = shapely.geometry.Polygon(first_polygon_coords[0])
             boundaries.append(polygon)
-        
+
         else:
             # For any other geometry types, append None to maintain array length
-            print(f"Warning: Unsupported geometry type: {geometry_type}, using placeholder")
+            print(
+                f"Warning: Unsupported geometry type: {geometry_type}, using placeholder"
+            )
             boundaries.append(shapely.geometry.Polygon())
-    
+
     print(f"Processed {len(boundaries)} boundary features")
     return boundaries
 
@@ -91,6 +96,14 @@ def get_spatial_index(coords: np.ndarray) -> shapely.STRtree:
 
     print(f"STRTree built with {len(tree)} geometries.")
 
+    return tree
+
+
+def build_boundary_spatial_index(
+    boundaries: List[shapely.geometry.Polygon],
+) -> shapely.STRtree:
+    tree = shapely.STRtree(boundaries)
+    print(f"STRTree built with {len(tree)} geometries.")
     return tree
 
 
@@ -355,6 +368,21 @@ def find_candidate_highway_idxs(
     return list(tree.query(bbox_shapely))
 
 
+def find_boundary_idxs(segment_coords: np.ndarray, tree: shapely.STRtree) -> List[int]:
+    segment_coords = segment_coords[~np.isnan(segment_coords).any(axis=1)]
+
+    if len(segment_coords) == 0:
+        return []
+
+    # Generate the bounding box for the segment and pad it.
+    bbox2d = generate_bbox(segment_coords)
+    bbox2d = pad_bbox(bbox2d, 100)
+    bbox_shapely = numpy_bbox_to_shapely(bbox2d)
+
+    # Obtain candidate highway indexes for this segment.
+    return list(tree.query(bbox_shapely))
+
+
 def find_best_matching_highway_idx(
     segment: TripSegmentIndex, segment_coords: np.ndarray, highway_coords: np.ndarray
 ) -> Optional[int]:
@@ -393,20 +421,20 @@ def find_best_matching_highway_idx(
     if len(valid_distances) > 0:
         min_distance_idx = np.argmin(valid_distances)
         best_matched_highway_idx = segment.candidate_highway_indexes[min_distance_idx]
-        min_distance = valid_distances[min_distance_idx]
+        # min_distance = valid_distances[min_distance_idx]
 
-        print(
-            f"  - Best match: Highway idx {best_matched_highway_idx} with mean distance {min_distance:.2f} meters"
-        )
+        # print(
+        #     f"  - Best match: Highway idx {best_matched_highway_idx} with mean distance {min_distance:.2f} meters"
+        # )
     else:
         best_matched_highway_idx = None
-        print("  - No valid highways found for this segment")
+        # print("  - No valid highways found for this segment")
 
     return best_matched_highway_idx
 
 
 def build_trip_segment_indexes(
-    trip: TripDimensions, tree: shapely.STRtree
+    trip: TripDimensions, highway_tree: shapely.STRtree, boundary_tree: shapely.STRtree
 ) -> TripSegmentIndexes:
     print(f"Processing trip {trip.id}...")
 
@@ -444,13 +472,15 @@ def build_trip_segment_indexes(
 
         segment_coords = trip_coords[split]
 
-        highway_idxs = find_candidate_highway_idxs(segment_coords, tree)
+        highway_idxs = find_candidate_highway_idxs(segment_coords, highway_tree)
+        boundary_idxs = find_boundary_idxs(segment_coords, boundary_tree)
 
         segment_obj = TripSegmentIndex(
             idx=idx,
             start_idx=start_idx,
             end_idx=end_idx,
             candidate_highway_indexes=highway_idxs,
+            boundary_indexes=boundary_idxs,
         )
         segments.append(segment_obj)
 
@@ -458,9 +488,13 @@ def build_trip_segment_indexes(
 
 
 def build_trip_segments_indexes(
-    trips: List[TripDimensions], tree: shapely.STRtree
+    trips: List[TripDimensions],
+    highway_tree: shapely.STRtree,
+    boundary_tree: shapely.STRtree,
 ) -> List[TripSegmentIndexes]:
-    return [build_trip_segment_indexes(trip, tree) for trip in trips]
+    return [
+        build_trip_segment_indexes(trip, highway_tree, boundary_tree) for trip in trips
+    ]
 
 
 def process_trip_segment_dimensions(
@@ -468,6 +502,8 @@ def process_trip_segment_dimensions(
     trip_segments: TripSegmentIndexes,
     highway_coords: np.ndarray,
 ) -> TripSegmentDimensions:
+    print(f"Processing trip {trip_dimensions.id}")
+
     segment_data = []
 
     for segment in trip_segments.segments:
@@ -486,10 +522,18 @@ def process_trip_segment_dimensions(
             [t for t in trip_dimensions.time[start_idx:end_idx] if t is not None]
         )
         segment_heart_rate = np.array(
-            [hr for hr in trip_dimensions.heart_rate[start_idx:end_idx] if hr is not None]
+            [
+                hr
+                for hr in trip_dimensions.heart_rate[start_idx:end_idx]
+                if hr is not None
+            ]
         )
         segment_temperature = np.array(
-            [temp for temp in trip_dimensions.temperature[start_idx:end_idx] if temp is not None]
+            [
+                temp
+                for temp in trip_dimensions.temperature[start_idx:end_idx]
+                if temp is not None
+            ]
         )
         segment_cadence = np.array(
             [c for c in trip_dimensions.cadence[start_idx:end_idx] if c is not None]
@@ -505,22 +549,32 @@ def process_trip_segment_dimensions(
             segment, segment_coords, highway_coords
         )
 
-        print(
-            f"Segment {segment.idx} of trip {trip_dimensions.id}: {len(segment_coords)} coordinates, {len(segment.candidate_highway_indexes)} candidate highways"
-        )
+        # print(
+        #     f"Segment {segment.idx} of trip {trip_dimensions.id}: {len(segment_coords)} coordinates, {len(segment.candidate_highway_indexes)} candidate highways"
+        # )
 
         offset_x, offset_y = linestring_offset(segment_coords)
         elevation_gain_m, elevation_loss_m = agg_elevations(segment_elevation)
-        distance_m = linestring_distance(segment_coords)       
-        elapsed_time_secs = int(max(segment_time) - min(segment_time)) if len(segment_time) > 1 else 0
+        distance_m = linestring_distance(segment_coords)
+        elapsed_time_secs = (
+            int(max(segment_time) - min(segment_time)) if len(segment_time) > 1 else 0
+        )
 
         moving_time_secs = agg_moving_time_secs(segment_coords, segment_time)
         if moving_time_secs is None:
             moving_time_secs = 0
 
-        mean_heart_rate = float(np.mean(segment_heart_rate)) if len(segment_heart_rate) > 0 else None
-        mean_temperature = float(np.mean(segment_temperature)) if len(segment_temperature) > 0 else None
-        mean_cadence = float(np.mean(segment_cadence)) if len(segment_cadence) > 0 else None
+        mean_heart_rate = (
+            float(np.mean(segment_heart_rate)) if len(segment_heart_rate) > 0 else None
+        )
+        mean_temperature = (
+            float(np.mean(segment_temperature))
+            if len(segment_temperature) > 0
+            else None
+        )
+        mean_cadence = (
+            float(np.mean(segment_cadence)) if len(segment_cadence) > 0 else None
+        )
         mean_power = float(np.mean(segment_power)) if len(segment_power) > 0 else None
 
         segment_data.append(
@@ -533,7 +587,7 @@ def process_trip_segment_dimensions(
                 elapsed_time_secs=elapsed_time_secs,
                 moving_time_secs=moving_time_secs,
                 matched_highway_idx=best_matched_highway_idx,
-                matched_boundary_idxs=[],
+                matched_boundary_idxs=segment.boundary_indexes,
                 mean_heart_rate_bpm=mean_heart_rate,
                 mean_temperature_c=mean_temperature,
                 mean_cadence_rpm=mean_cadence,
@@ -553,10 +607,12 @@ def main() -> None:
     highway_coords = get_highway_data()
     boundaries = get_boundary_data()
 
-    tree = get_spatial_index(highway_coords)
+    highway_tree = get_spatial_index(highway_coords)
+    boundary_tree = build_boundary_spatial_index(boundaries)
+
     trips = load_trip_dimensions()[:5]
 
-    trip_segments_list = build_trip_segments_indexes(trips, tree)
+    trip_segments_list = build_trip_segments_indexes(trips, highway_tree, boundary_tree)
 
     # For example, print out the JSON representations of the TripSegments instances.
     print("Finished processing trips. Generated TripSegments instances:")
@@ -564,11 +620,27 @@ def main() -> None:
     #     # Using the pydantic's model json() method for pretty printing
     #     print(ts.json())
 
+    trip_segment_dimensions = []
     for i, trip_segments in enumerate(trip_segments_list):
         trip_dimensions = trips[i]
 
-        process_trip_segment_dimensions(trip_dimensions, trip_segments, highway_coords)
+        trip_segment_dimensions.append(
+            process_trip_segment_dimensions(
+                trip_dimensions, trip_segments, highway_coords
+            )
+        )
 
+  # Save trip_segment_dimensions to a JSON file
+    output_path = "../data/trip_segment_dimensions.json"
+    print(f"Saving trip segment dimensions to {output_path}...")
+    
+    # Convert Pydantic models to dict and then to JSON
+    json_data = [tsd.model_dump() for tsd in trip_segment_dimensions]
+    
+    with open(output_path, "w") as f:
+        json.dump(json_data, f, indent=2)
+    
+    print(f"Successfully saved {len(trip_segment_dimensions)} trip segment dimensions to {output_path}")
 
 if __name__ == "__main__":
     main()

@@ -8,6 +8,7 @@ class TripSegmentIndex(BaseModel):
     start_idx: int
     end_idx: int
     candidate_highway_indexes: List[int]
+    boundary_indexes: List[int]
 
 
 class TripSegmentIndexes(BaseModel):
