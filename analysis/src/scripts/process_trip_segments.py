@@ -441,48 +441,63 @@ def build_trip_segment_indexes(
     trip_coords = np.array(
         [p if p is not None else [np.nan, np.nan] for p in trip.coords]
     )
-    trip_distance_m = trip.distance_m
-
-    # Calculate segment count based on distance, but ensure segments don't exceed 128 coords
-    min_segments_by_distance = max(1, math.ceil(trip_distance_m / 200))
-    min_segments_by_coords = max(1, math.ceil(len(trip_coords) / 128))
-    segment_count = max(min_segments_by_distance, min_segments_by_coords)
-
-    print(
-        f"Trip distance: {trip_distance_m} m, dividing into {segment_count} segments."
-    )
-
+    
     segments: List[TripSegmentIndex] = []
-    # Split the indices instead of the data directly to retain start indexes.
-    indices = np.arange(len(trip_coords))
-    indices_splits = np.array_split(indices, segment_count)
+    
+    # Index to track our position in the overall trip coordinates array
+    current_idx = 0
+    segment_idx = 0
+    
+    while current_idx < len(trip_coords):
+        start_idx = current_idx
+        end_idx = start_idx + 1  # Start with at least 2 points
+        
+        while end_idx < len(trip_coords):
+            # Check if adding another point would exceed the maximum points per segment
+            if end_idx - start_idx >= 128:
+                break
+                
+            # Check the straight-line distance between first and last point
+            segment_endpoints = np.array([trip_coords[start_idx], trip_coords[end_idx]])
+            
+            # Skip points with NaN values
+            if np.isnan(segment_endpoints).any():
+                end_idx += 1
+                continue
+                
+            # Calculate the straight-line distance
+            straight_line_distance = linestring_distance(segment_endpoints)
+            
+            # If the distance exceeds our threshold, don't include this point
+            if straight_line_distance > 250:
+                break
+                
+            # Otherwise, include this point and continue
+            end_idx += 1
+        
+        # Ensure we have at least 2 points (or whatever's left)
+        if end_idx <= start_idx:
+            end_idx = min(start_idx + 2, len(trip_coords))
+            
+        segment_coords = trip_coords[start_idx:end_idx]
+        
+        # Skip creating a segment if we have no valid coordinates
+        if not np.isnan(segment_coords).all():
+            highway_idxs = find_candidate_highway_idxs(segment_coords, highway_tree)
+            boundary_idxs = find_boundary_idxs(segment_coords, boundary_tree)
 
-    for idx, split in enumerate(indices_splits):
-        if len(split) == 0:
-            continue
-        start_idx = int(split[0])
-
-        # Calculate end_idx based on the next segment or end of trip
-        if idx < len(indices_splits) - 1:
-            # If not the last segment, end_idx is the start of the next segment
-            end_idx = int(indices_splits[idx + 1][0])
-        else:
-            # If this is the last segment, end_idx is the end of the trip
-            end_idx = len(trip_coords)
-
-        segment_coords = trip_coords[split]
-
-        highway_idxs = find_candidate_highway_idxs(segment_coords, highway_tree)
-        boundary_idxs = find_boundary_idxs(segment_coords, boundary_tree)
-
-        segment_obj = TripSegmentIndex(
-            idx=idx,
-            start_idx=start_idx,
-            end_idx=end_idx,
-            candidate_highway_indexes=highway_idxs,
-            boundary_indexes=boundary_idxs,
-        )
-        segments.append(segment_obj)
+            segment_obj = TripSegmentIndex(
+                idx=segment_idx,
+                start_idx=start_idx,
+                end_idx=end_idx,
+                candidate_highway_indexes=highway_idxs,
+                boundary_indexes=boundary_idxs,
+            )
+            segments.append(segment_obj)
+            segment_idx += 1
+        
+        # Move to the next segment
+        current_idx = end_idx
 
     return TripSegmentIndexes(trip_id=trip.id, segments=segments)
 
