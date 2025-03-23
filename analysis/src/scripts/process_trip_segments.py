@@ -89,6 +89,60 @@ def pad_linestring(
     return padded_coords, mask
 
 
+def pad_linestrings(linestrings: List[np.ndarray], target_length=1024) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Pad a list of linestrings to a target length by repeating the last coordinate of each.
+
+    Parameters:
+    -----------
+    linestrings : List[np.ndarray]
+        List of linestring coordinate arrays, where each array has shape (N, 2)
+        N can vary between linestrings
+        Each point is [lon, lat]
+    target_length : int, default=1024
+        Target length to pad each linestring to
+
+    Returns:
+    --------
+    tuple[np.ndarray, np.ndarray]
+        - Padded coordinates with shape (L, target_length, 2) where L is the number of linestrings
+        - Boolean mask with shape (L, target_length) where True indicates original points
+          and False indicates padding
+    """
+    num_linestrings = len(linestrings)
+    
+    # Handle empty list case
+    if num_linestrings == 0:
+        return np.array([]), np.array([])
+    
+    # Initialize output arrays
+    # Use float32 or the dtype of the first array for consistency
+    dtype = linestrings[0].dtype if len(linestrings) > 0 else np.float32
+    padded_linestrings = np.zeros((num_linestrings, target_length, 2), dtype=dtype)
+    masks = np.zeros((num_linestrings, target_length), dtype=bool)
+    
+    # Process each linestring individually
+    for i, linestring in enumerate(linestrings):
+        # Get current length of this linestring
+        current_length = len(linestring)
+        
+        # Set mask - True for original points, False for padding
+        masks[i, :current_length] = True
+        
+        # If already at or exceeding target length, truncate
+        if current_length >= target_length:
+            padded_linestrings[i] = linestring[:target_length]
+        else:
+            # Copy original points
+            padded_linestrings[i, :current_length] = linestring
+            
+            # Repeat the last coordinate for padding (if linestring is not empty)
+            if current_length > 0:
+                padded_linestrings[i, current_length:] = linestring[-1]
+    
+    return padded_linestrings, masks
+
+
 def pad_highways(
     highways_coords: np.ndarray, highways_mask: np.ndarray, target_length=512
 ) -> tuple[np.ndarray, np.ndarray]:
@@ -140,6 +194,8 @@ def pad_highways(
 
 
 ADAPTIVE_TARGET_LENGTHS = [8, 32, 64, 128, 256, 512]
+
+
 def pad_highways_adaptive(
     highways_coords: np.ndarray, highways_mask: np.ndarray
 ) -> tuple[np.ndarray, np.ndarray]:
@@ -192,18 +248,10 @@ def find_candidate_highway_idxs(
 def find_best_matching_highway_idx(
     segment: TripSegmentIndex, segment_coords: np.ndarray, highway_coords: np.ndarray
 ) -> Optional[int]:
-    candidate_highways_coords_and_padding_masks = [
-        pad_linestring(highway_coords[idx]) for idx in segment.candidate_highway_indexes
-    ]
+    candidate_highways_linestrings = [highway_coords[idx] for idx in segment.candidate_highway_indexes]
 
-    if len(candidate_highways_coords_and_padding_masks) == 0:
-        return None
-
-    candidate_highways_coords = np.array(
-        [x[0] for x in candidate_highways_coords_and_padding_masks]
-    )
-    candidate_highways_masks = np.array(
-        [x[1] for x in candidate_highways_coords_and_padding_masks]
+    candidate_highways_coords, candidate_highways_masks = pad_linestrings(
+        candidate_highways_linestrings, 1024
     )
 
     candidate_highways_coords, candidate_highways_masks = pad_highways_adaptive(
