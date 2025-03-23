@@ -294,3 +294,52 @@ def linestring_distance(linestring: np.ndarray) -> float:
     total_distance = np.sum(distances)
 
     return float(total_distance)
+
+def linestring_offset(linestring: np.ndarray) -> np.ndarray:
+    """
+    Calculate the offset in meters between the first and last point of a linestring.
+    The first point is treated as (0,0), and the result will show x/y offsets in meters.
+    
+    Parameters:
+    -----------
+    linestring : np.ndarray
+        Array of linestring points with shape (N, 2) where each point is [lon, lat]
+        
+    Returns:
+    --------
+    np.ndarray
+        Array with shape (2,) containing [x_offset, y_offset] in meters
+        where x_offset is the east-west offset and y_offset is the north-south offset
+    
+    Notes:
+    ------
+    Returns [0.0, 0.0] if the linestring has fewer than 2 points.
+    Uses spherical approximation to calculate offsets.
+    """
+    if len(linestring) < 2:
+        return np.array([0.0, 0.0])
+
+    endpoints = np.vstack([linestring[0], linestring[-1]])
+    
+    # Convert all points to radians for vectorized operations
+    points_rad = np.radians(endpoints)
+    
+    # Extract first and last points (now in radians)
+    first_point = points_rad[0]
+    last_point = points_rad[-1]
+    
+    # Unpack coordinates
+    lon1, lat1 = first_point
+    lon2, lat2 = last_point
+    
+    # Earth radius in meters
+    radius = 6371000.0
+    
+    # Calculate x offset (east-west)
+    # We use the latitude of the first point for the longitude scaling
+    x_offset = radius * np.cos(lat1) * (lon2 - lon1)
+    
+    # Calculate y offset (north-south)
+    y_offset = radius * (lat2 - lat1)
+    
+    return np.array([float(x_offset), float(y_offset)])

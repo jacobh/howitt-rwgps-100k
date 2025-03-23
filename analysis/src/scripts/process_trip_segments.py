@@ -8,7 +8,9 @@ from ..lib.geo import (
     numpy_bbox_to_shapely,
     mean_min_distances,
     linestring_distance,
+    linestring_offset
 )
+from ..lib.aggregates import agg_elevations
 from ..models.trip_dimensions import TripDimensions
 from ..models.trip_segments import (
     TripSegmentIndex,
@@ -460,6 +462,8 @@ def process_trip_segment_dimensions(
             f"Segment {segment.idx} of trip {trip_dimensions.id}: {len(segment_coords)} coordinates, {len(segment.candidate_highway_indexes)} candidate highways"
         )
 
+        offset_x, offset_y = linestring_offset(segment_coords)
+        elevation_gain_m, elevation_loss_m = agg_elevations(segment_elevation)
         distance_m = linestring_distance(segment_coords)       
         elapsed_time_secs = int(max(segment_time) - min(segment_time)) if len(segment_time) > 1 else 0
 
@@ -470,10 +474,10 @@ def process_trip_segment_dimensions(
 
         segment_data.append(
             TripSegmentData(
-                elevation_gain_m=0,
-                elevation_loss_m=0,
-                offset_x=0,
-                offset_y=0,
+                elevation_gain_m=elevation_gain_m,
+                elevation_loss_m=elevation_loss_m,
+                offset_x=offset_x,
+                offset_y=offset_y,
                 distance_m=distance_m,
                 elapsed_time_secs=elapsed_time_secs,
                 moving_time_secs=0,
