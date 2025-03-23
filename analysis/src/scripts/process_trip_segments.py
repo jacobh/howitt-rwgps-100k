@@ -10,7 +10,7 @@ from ..lib.geo import (
     linestring_distance,
     linestring_offset
 )
-from ..lib.aggregates import agg_elevations
+from ..lib.aggregates import agg_elevations, agg_moving_time_secs
 from ..models.trip_dimensions import TripDimensions
 from ..models.trip_segments import (
     TripSegmentIndex,
@@ -467,6 +467,10 @@ def process_trip_segment_dimensions(
         distance_m = linestring_distance(segment_coords)       
         elapsed_time_secs = int(max(segment_time) - min(segment_time)) if len(segment_time) > 1 else 0
 
+        moving_time_secs = agg_moving_time_secs(segment_coords, segment_time)
+        if moving_time_secs is None:
+            moving_time_secs = 0
+
         mean_heart_rate = float(np.mean(segment_heart_rate)) if len(segment_heart_rate) > 0 else None
         mean_temperature = float(np.mean(segment_temperature)) if len(segment_temperature) > 0 else None
         mean_cadence = float(np.mean(segment_cadence)) if len(segment_cadence) > 0 else None
@@ -480,7 +484,7 @@ def process_trip_segment_dimensions(
                 offset_y=offset_y,
                 distance_m=distance_m,
                 elapsed_time_secs=elapsed_time_secs,
-                moving_time_secs=0,
+                moving_time_secs=moving_time_secs,
                 matched_highway_idx=best_matched_highway_idx,
                 matched_boundary_idxs=[],
                 mean_heart_rate_bpm=mean_heart_rate,
