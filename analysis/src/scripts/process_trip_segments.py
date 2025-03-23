@@ -22,6 +22,7 @@ from ..models.trip_segments import (
 import math
 from typing import List, Optional
 import msgpack
+import json
 
 import os
 
@@ -37,6 +38,52 @@ def get_highway_data() -> np.ndarray:
     print(f"Total features loaded: {len(coords)}")
 
     return np.array(coords)
+
+def get_boundary_data() -> List[shapely.Polygon]:
+    """
+    Load boundary data from GeoJSON file and convert to shapely polygons.
+    
+    For MultiPolygon geometries, only the first polygon is kept.
+    
+    Returns:
+        List[shapely.Polygon]: List of shapely Polygon objects
+    """
+    boundary_path: str = "../data/aus_boundaries_polygons.json"
+    print(f"Loading boundary data from '{boundary_path}'...")
+    
+    with open(boundary_path, "r") as f:
+        boundary_data = json.load(f)
+    
+    features = boundary_data["features"]
+    print(f"Loaded {len(features)} boundary features")
+    
+    boundaries = []
+    for feature in features:
+        geometry_type = feature["geometry"]["type"]
+        
+        if geometry_type == "Polygon":
+            # Convert Polygon to shapely Polygon
+            if len(feature["geometry"]["coordinates"]) > 0:
+                polygon = shapely.geometry.Polygon(feature["geometry"]["coordinates"][0])
+            else:
+                polygon = shapely.geometry.Polygon()
+            boundaries.append(polygon)
+        
+        elif geometry_type == "MultiPolygon":
+            # For MultiPolygon, take only the first polygon
+            # Note that MultiPolygon coordinates are structured as [polygon_coords, ...]
+            # and each polygon_coords is structured as [exterior_ring, hole1, hole2, ...]
+            first_polygon_coords = feature["geometry"]["coordinates"][0]
+            polygon = shapely.geometry.Polygon(first_polygon_coords[0])
+            boundaries.append(polygon)
+        
+        else:
+            # For any other geometry types, append None to maintain array length
+            print(f"Warning: Unsupported geometry type: {geometry_type}, using placeholder")
+            boundaries.append(shapely.geometry.Polygon())
+    
+    print(f"Processed {len(boundaries)} boundary features")
+    return boundaries
 
 
 def get_spatial_index(coords: np.ndarray) -> shapely.STRtree:
@@ -504,6 +551,7 @@ def process_trip_segment_dimensions(
 
 def main() -> None:
     highway_coords = get_highway_data()
+    boundaries = get_boundary_data()
 
     tree = get_spatial_index(highway_coords)
     trips = load_trip_dimensions()[:5]
