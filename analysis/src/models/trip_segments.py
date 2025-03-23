@@ -25,10 +25,10 @@ class TripSegmentData(BaseModel):
     moving_time_secs: float
     matched_highway_idx: Optional[int]
     matched_boundary_idxs: List[int]
-    mean_heart_rate_bpm: float
-    mean_temperature_c: float
-    mean_cadence_rpm: float
-    mean_power_w: float
+    mean_heart_rate_bpm: Optional[float]
+    mean_temperature_c: Optional[float]
+    mean_cadence_rpm: Optional[float]
+    mean_power_w: Optional[float]
 
 
 class TripSegmentDimensions(BaseModel):
@@ -44,10 +44,10 @@ class TripSegmentDimensions(BaseModel):
     moving_time_secs: List[float]
     matched_highway_idx: List[Optional[int]]
     matched_boundary_idxs: List[List[int]]
-    mean_heart_rate_bpm: List[float]
-    mean_temperature_c: List[float]
-    mean_cadence_rpm: List[float]
-    mean_power_w: List[float]
+    mean_heart_rate_bpm: List[Optional[float]]
+    mean_temperature_c: List[Optional[float]]
+    mean_cadence_rpm: List[Optional[float]]
+    mean_power_w: List[Optional[float]]
 
 
 def collect_trip_segment_dimensions(

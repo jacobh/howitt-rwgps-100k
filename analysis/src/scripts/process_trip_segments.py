@@ -429,6 +429,27 @@ def process_trip_segment_dimensions(
         segment_coords = np.array(
             [p for p in trip_dimensions.coords[start_idx:end_idx] if p is not None]
         )
+        segment_elevation = np.array(
+            [e for e in trip_dimensions.elevation[start_idx:end_idx] if e is not None]
+        )
+        segment_speed = np.array(
+            [s for s in trip_dimensions.speed[start_idx:end_idx] if s is not None]
+        )
+        segment_time = np.array(
+            [t for t in trip_dimensions.time[start_idx:end_idx] if t is not None]
+        )
+        segment_heart_rate = np.array(
+            [hr for hr in trip_dimensions.heart_rate[start_idx:end_idx] if hr is not None]
+        )
+        segment_temperature = np.array(
+            [temp for temp in trip_dimensions.temperature[start_idx:end_idx] if temp is not None]
+        )
+        segment_cadence = np.array(
+            [c for c in trip_dimensions.cadence[start_idx:end_idx] if c is not None]
+        )
+        segment_power = np.array(
+            [p for p in trip_dimensions.power[start_idx:end_idx] if p is not None]
+        )
 
         if len(segment_coords) == 0:
             continue
@@ -441,6 +462,11 @@ def process_trip_segment_dimensions(
             f"Segment {segment.idx} of trip {trip_dimensions.id}: {len(segment_coords)} coordinates, {len(segment.candidate_highway_indexes)} candidate highways"
         )
 
+        mean_heart_rate = float(np.mean(segment_heart_rate)) if len(segment_heart_rate) > 0 else None
+        mean_temperature = float(np.mean(segment_temperature)) if len(segment_temperature) > 0 else None
+        mean_cadence = float(np.mean(segment_cadence)) if len(segment_cadence) > 0 else None
+        mean_power = float(np.mean(segment_power)) if len(segment_power) > 0 else None
+
         segment_data.append(
             TripSegmentData(
                 elevation_gain_m=0,
@@ -452,10 +478,10 @@ def process_trip_segment_dimensions(
                 moving_time_secs=0,
                 matched_highway_idx=best_matched_highway_idx,
                 matched_boundary_idxs=[],
-                mean_heart_rate_bpm=0,
-                mean_temperature_c=0,
-                mean_cadence_rpm=0,
-                mean_power_w=0,
+                mean_heart_rate_bpm=mean_heart_rate,
+                mean_temperature_c=mean_temperature,
+                mean_cadence_rpm=mean_cadence,
+                mean_power_w=mean_power,
             )
         )
 
