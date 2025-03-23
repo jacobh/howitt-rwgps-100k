@@ -208,15 +208,9 @@ def find_best_matching_highway_idx(
 
     return best_matched_highway_idx
 
-
-def process_trip_indexes() -> None:
-    highway_coords = get_highway_data()
-
-    tree = get_spatial_index(highway_coords)
-    trips = load_trip_dimensions()
-
+def build_trip_segment_indexes(trips: List[TripDimensions], tree: shapely.STRtree) -> List[TripSegmentIndexes]:
     trip_segments_list: List[TripSegmentIndexes] = []
-    for trip in trips[:5]:
+    for trip in trips:
         print(f"Processing trip {trip.id}...")
 
         trip_coords = np.array(
@@ -254,6 +248,17 @@ def process_trip_indexes() -> None:
         trip_seg_obj = TripSegmentIndexes(trip_id=trip.id, segments=segments)
         trip_segments_list.append(trip_seg_obj)
 
+    return trip_segments_list
+
+
+def process_trip_segments() -> None:
+    highway_coords = get_highway_data()
+
+    tree = get_spatial_index(highway_coords)
+    trips = load_trip_dimensions()[:5]
+
+    trip_segments_list = build_trip_segment_indexes(trips, tree)
+    
     # For example, print out the JSON representations of the TripSegments instances.
     print("Finished processing trips. Generated TripSegments instances:")
     # for ts in trip_segments_list:
@@ -294,4 +299,4 @@ def process_trip_indexes() -> None:
 
 
 if __name__ == "__main__":
-    process_trip_indexes()
+    process_trip_segments()
