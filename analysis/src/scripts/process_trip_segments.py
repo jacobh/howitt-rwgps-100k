@@ -328,60 +328,61 @@ def find_best_matching_highway_idx(
 
 
 def build_trip_segment_indexes(
+    trip: TripDimensions, tree: shapely.STRtree
+) -> TripSegmentIndexes:
+    print(f"Processing trip {trip.id}...")
+    
+    trip_coords = np.array(
+        [p if p is not None else [np.nan, np.nan] for p in trip.coords]
+    )
+    trip_distance_m = trip.distance_m
+
+    # Calculate segment count based on distance, but ensure segments don't exceed 128 coords
+    min_segments_by_distance = max(1, math.ceil(trip_distance_m / 200))
+    min_segments_by_coords = max(1, math.ceil(len(trip_coords) / 128))
+    segment_count = max(min_segments_by_distance, min_segments_by_coords)
+
+    print(
+        f"Trip distance: {trip_distance_m} m, dividing into {segment_count} segments."
+    )
+
+    segments: List[TripSegmentIndex] = []
+    # Split the indices instead of the data directly to retain start indexes.
+    indices = np.arange(len(trip_coords))
+    indices_splits = np.array_split(indices, segment_count)
+
+    for idx, split in enumerate(indices_splits):
+        if len(split) == 0:
+            continue
+        start_idx = int(split[0])
+        
+        # Calculate end_idx based on the next segment or end of trip
+        if idx < len(indices_splits) - 1:
+            # If not the last segment, end_idx is the start of the next segment
+            end_idx = int(indices_splits[idx + 1][0])
+        else:
+            # If this is the last segment, end_idx is the end of the trip
+            end_idx = len(trip_coords)
+            
+        segment_coords = trip_coords[split]
+
+        highway_idxs = find_candidate_highway_idxs(segment_coords, tree)
+
+        segment_obj = TripSegmentIndex(
+            idx=idx,
+            start_idx=start_idx,
+            end_idx=end_idx,
+            candidate_highway_indexes=highway_idxs
+        )
+        segments.append(segment_obj)
+
+    return TripSegmentIndexes(trip_id=trip.id, segments=segments)
+
+
+def build_trip_segments_indexes(
     trips: List[TripDimensions], tree: shapely.STRtree
 ) -> List[TripSegmentIndexes]:
-    trip_segments_list: List[TripSegmentIndexes] = []
-    for trip in trips:
-        print(f"Processing trip {trip.id}...")
-
-        trip_coords = np.array(
-            [p if p is not None else [np.nan, np.nan] for p in trip.coords]
-        )
-        trip_distance_m = trip.distance_m
-
-        # Calculate segment count based on distance, but ensure segments don't exceed 128 coords
-        min_segments_by_distance = max(1, math.ceil(trip_distance_m / 200))
-        min_segments_by_coords = max(1, math.ceil(len(trip_coords) / 128))
-        segment_count = max(min_segments_by_distance, min_segments_by_coords)
-
-        print(
-            f"Trip distance: {trip_distance_m} m, dividing into {segment_count} segments."
-        )
-
-        segments: List[TripSegmentIndex] = []
-        # Split the indices instead of the data directly to retain start indexes.
-        indices = np.arange(len(trip_coords))
-        indices_splits = np.array_split(indices, segment_count)
-
-        for idx, split in enumerate(indices_splits):
-            if len(split) == 0:
-                continue
-            start_idx = int(split[0])
-            
-            # Calculate end_idx based on the next segment or end of trip
-            if idx < len(indices_splits) - 1:
-                # If not the last segment, end_idx is the start of the next segment
-                end_idx = int(indices_splits[idx + 1][0])
-            else:
-                # If this is the last segment, end_idx is the end of the trip
-                end_idx = len(trip_coords)
-                
-            segment_coords = trip_coords[split]
-
-            highway_idxs = find_candidate_highway_idxs(segment_coords, tree)
-
-            segment_obj = TripSegmentIndex(
-                idx=idx,
-                start_idx=start_idx,
-                end_idx=end_idx,
-                candidate_highway_indexes=highway_idxs
-            )
-            segments.append(segment_obj)
-
-        trip_seg_obj = TripSegmentIndexes(trip_id=trip.id, segments=segments)
-        trip_segments_list.append(trip_seg_obj)
-
-    return trip_segments_list
+    return [build_trip_segment_indexes(trip, tree) for trip in trips]
 
 
 def process_trip_segments() -> None:
@@ -390,7 +391,7 @@ def process_trip_segments() -> None:
     tree = get_spatial_index(highway_coords)
     trips = load_trip_dimensions()[:5]
 
-    trip_segments_list = build_trip_segment_indexes(trips, tree)
+    trip_segments_list = build_trip_segments_indexes(trips, tree)
 
     # For example, print out the JSON representations of the TripSegments instances.
     print("Finished processing trips. Generated TripSegments instances:")
