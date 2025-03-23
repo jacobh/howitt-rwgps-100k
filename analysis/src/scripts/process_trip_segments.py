@@ -138,7 +138,43 @@ def pad_highways(
 
     return padded_highways, padded_mask
 
-def find_candidate_highway_idxs(segment_coords: np.ndarray, tree: shapely.STRtree) -> List[int]:
+
+ADAPTIVE_TARGET_LENGTHS = [8, 32, 64, 128, 256, 512]
+def pad_highways_adaptive(
+    highways_coords: np.ndarray, highways_mask: np.ndarray
+) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Adaptively pad the highways_coords array to the smallest target length from
+    ADAPTIVE_TARGET_LENGTHS that is >= the actual number of highways.
+
+    Args:
+        highways_coords: Array of shape (n_highways, n_points, 2) containing highway coordinates
+        highways_mask: Array of shape (n_highways, n_points) containing boolean masks
+
+    Returns:
+        tuple[np.ndarray, np.ndarray]:
+            - Padded highways coordinates array
+            - Updated mask with padded highways marked as all False
+    """
+    if len(highways_coords) == 0:
+        # Return empty arrays for both coordinates and mask
+        return np.array([]), np.array([])
+
+    highways_count = highways_coords.shape[0]
+
+    # Find the smallest target length that is >= highways_count
+    target_length = next(
+        (length for length in ADAPTIVE_TARGET_LENGTHS if length >= highways_count),
+        ADAPTIVE_TARGET_LENGTHS[-1],
+    )
+
+    # Use the existing pad_highways function with our adaptive target_length
+    return pad_highways(highways_coords, highways_mask, target_length)
+
+
+def find_candidate_highway_idxs(
+    segment_coords: np.ndarray, tree: shapely.STRtree
+) -> List[int]:
     segment_coords = segment_coords[~np.isnan(segment_coords).any(axis=1)]
 
     if len(segment_coords) == 0:
@@ -170,8 +206,8 @@ def find_best_matching_highway_idx(
         [x[1] for x in candidate_highways_coords_and_padding_masks]
     )
 
-    candidate_highways_coords, candidate_highways_masks = pad_highways(
-        candidate_highways_coords, candidate_highways_masks, 256
+    candidate_highways_coords, candidate_highways_masks = pad_highways_adaptive(
+        candidate_highways_coords, candidate_highways_masks
     )
 
     ref_coords, ref_mask = pad_linestring(segment_coords, 128)
@@ -208,7 +244,10 @@ def find_best_matching_highway_idx(
 
     return best_matched_highway_idx
 
-def build_trip_segment_indexes(trips: List[TripDimensions], tree: shapely.STRtree) -> List[TripSegmentIndexes]:
+
+def build_trip_segment_indexes(
+    trips: List[TripDimensions], tree: shapely.STRtree
+) -> List[TripSegmentIndexes]:
     trip_segments_list: List[TripSegmentIndexes] = []
     for trip in trips:
         print(f"Processing trip {trip.id}...")
@@ -237,7 +276,7 @@ def build_trip_segment_indexes(trips: List[TripDimensions], tree: shapely.STRtre
                 continue
             start_idx = int(split[0])
             segment_coords = trip_coords[split]
-            
+
             highway_idxs = find_candidate_highway_idxs(segment_coords, tree)
 
             segment_obj = TripSegmentIndex(
@@ -258,7 +297,7 @@ def process_trip_segments() -> None:
     trips = load_trip_dimensions()[:5]
 
     trip_segments_list = build_trip_segment_indexes(trips, tree)
-    
+
     # For example, print out the JSON representations of the TripSegments instances.
     print("Finished processing trips. Generated TripSegments instances:")
     # for ts in trip_segments_list:
