@@ -182,10 +182,6 @@ def pad_linestrings(
     """
     num_linestrings = len(linestrings)
 
-    # Handle empty list case
-    if num_linestrings == 0:
-        return np.array([]), np.array([])
-
     # Initialize output arrays
     # Use float32 or the dtype of the first array for consistency
     dtype = linestrings[0].dtype if len(linestrings) > 0 else np.float32
@@ -238,12 +234,8 @@ def pad_linestrings_adaptive(
         - Boolean mask with shape (L, target_length) where True indicates original points
           and False indicates padding
     """
-    # Handle empty list case
-    if not linestrings:
-        return np.array([]), np.array([])
-
     # Find the maximum length of any linestring in the list
-    max_linestring_length = max(len(linestring) for linestring in linestrings)
+    max_linestring_length = max(len(linestring) for linestring in linestrings) if len(linestrings) > 0 else 0
 
     # Find the smallest target length from ADAPTIVE_LINESTRING_TARGET_LENGTHS
     # that is >= max_linestring_length
@@ -282,11 +274,13 @@ def pad_highways(
             - Padded array of shape (target_length, n_points, 2)
             - Updated mask of shape (target_length, n_points) with padded highways marked as all False
     """
-    if len(highways_coords) == 0:
-        # Return empty arrays for both coordinates and mask
-        return np.array([]), np.array([])
-
     current_length = len(highways_coords)
+
+    if current_length == 0:
+        return (
+            np.zeros((target_length, 1, 2), dtype=np.float32),
+            np.zeros((target_length, 1), dtype=bool),
+        )
 
     # If already at or exceeding target length, truncate both arrays
     if current_length >= target_length:
@@ -331,10 +325,6 @@ def pad_highways_adaptive(
             - Padded highways coordinates array
             - Updated mask with padded highways marked as all False
     """
-    if len(highways_coords) == 0:
-        # Return empty arrays for both coordinates and mask
-        return np.array([]), np.array([])
-
     highways_count = highways_coords.shape[0]
 
     # Find the smallest target length that is >= highways_count
@@ -625,7 +615,7 @@ def main() -> None:
     highway_tree = get_spatial_index(highway_coords)
     boundary_tree = build_boundary_spatial_index(boundaries)
 
-    trips = load_trip_dimensions()[:5]
+    trips = load_trip_dimensions()
 
     trip_segments_list = build_trip_segments_indexes(trips, highway_tree, boundary_tree)
 
