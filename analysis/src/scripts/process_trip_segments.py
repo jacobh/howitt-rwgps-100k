@@ -19,7 +19,7 @@ from ..models.trip_segments import (
     TripSegmentData,
     collect_trip_segment_dimensions,
 )
-import math
+from concurrent.futures import ThreadPoolExecutor
 from typing import List, Optional
 import msgpack
 import json
@@ -235,7 +235,11 @@ def pad_linestrings_adaptive(
           and False indicates padding
     """
     # Find the maximum length of any linestring in the list
-    max_linestring_length = max(len(linestring) for linestring in linestrings) if len(linestrings) > 0 else 0
+    max_linestring_length = (
+        max(len(linestring) for linestring in linestrings)
+        if len(linestrings) > 0
+        else 0
+    )
 
     # Find the smallest target length from ADAPTIVE_LINESTRING_TARGET_LENGTHS
     # that is >= max_linestring_length
@@ -431,46 +435,46 @@ def build_trip_segment_indexes(
     trip_coords = np.array(
         [p if p is not None else [np.nan, np.nan] for p in trip.coords]
     )
-    
+
     segments: List[TripSegmentIndex] = []
-    
+
     # Index to track our position in the overall trip coordinates array
     current_idx = 0
     segment_idx = 0
-    
+
     while current_idx < len(trip_coords):
         start_idx = current_idx
         end_idx = start_idx + 1  # Start with at least 2 points
-        
+
         while end_idx < len(trip_coords):
             # Check if adding another point would exceed the maximum points per segment
             if end_idx - start_idx >= 128:
                 break
-                
+
             # Check the straight-line distance between first and last point
             segment_endpoints = np.array([trip_coords[start_idx], trip_coords[end_idx]])
-            
+
             # Skip points with NaN values
             if np.isnan(segment_endpoints).any():
                 end_idx += 1
                 continue
-                
+
             # Calculate the straight-line distance
             straight_line_distance = linestring_distance(segment_endpoints)
-            
+
             # If the distance exceeds our threshold, don't include this point
             if straight_line_distance > 250:
                 break
-                
+
             # Otherwise, include this point and continue
             end_idx += 1
-        
+
         # Ensure we have at least 2 points (or whatever's left)
         if end_idx <= start_idx:
             end_idx = min(start_idx + 2, len(trip_coords))
-            
+
         segment_coords = trip_coords[start_idx:end_idx]
-        
+
         # Skip creating a segment if we have no valid coordinates
         if not np.isnan(segment_coords).all():
             highway_idxs = find_candidate_highway_idxs(segment_coords, highway_tree)
@@ -485,7 +489,7 @@ def build_trip_segment_indexes(
             )
             segments.append(segment_obj)
             segment_idx += 1
-        
+
         # Move to the next segment
         current_idx = end_idx
 
@@ -497,9 +501,15 @@ def build_trip_segments_indexes(
     highway_tree: shapely.STRtree,
     boundary_tree: shapely.STRtree,
 ) -> List[TripSegmentIndexes]:
-    return [
-        build_trip_segment_indexes(trip, highway_tree, boundary_tree) for trip in trips
-    ]
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        return list(
+            executor.map(
+                lambda trip: build_trip_segment_indexes(
+                    trip, highway_tree, boundary_tree
+                ),
+                trips,
+            )
+        )
 
 
 def process_trip_segment_dimensions(
@@ -625,27 +635,32 @@ def main() -> None:
     #     # Using the pydantic's model json() method for pretty printing
     #     print(ts.json())
 
-    trip_segment_dimensions = []
-    for i, trip_segments in enumerate(trip_segments_list):
-        trip_dimensions = trips[i]
-
-        trip_segment_dimensions.append(
-            process_trip_segment_dimensions(
-                trip_dimensions, trip_segments, highway_coords
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        trip_segment_dimensions = list(
+            executor.map(
+                lambda trip_dimensions_and_segments: process_trip_segment_dimensions(
+                    trip_dimensions_and_segments[0],
+                    trip_dimensions_and_segments[1],
+                    highway_coords,
+                ),
+                zip(trips, trip_segments_list),
             )
         )
 
-  # Save trip_segment_dimensions to a JSON file
+    # Save trip_segment_dimensions to a JSON file
     output_path = "../data/trip_segment_dimensions.json"
     print(f"Saving trip segment dimensions to {output_path}...")
-    
+
     # Convert Pydantic models to dict and then to JSON
     json_data = [tsd.model_dump() for tsd in trip_segment_dimensions]
-    
+
     with open(output_path, "w") as f:
         json.dump(json_data, f, indent=2)
-    
-    print(f"Successfully saved {len(trip_segment_dimensions)} trip segment dimensions to {output_path}")
+
+    print(
+        f"Successfully saved {len(trip_segment_dimensions)} trip segment dimensions to {output_path}"
+    )
+
 
 if __name__ == "__main__":
     main()
