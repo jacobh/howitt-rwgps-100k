@@ -7,6 +7,7 @@ from ..lib.geo import (
     pad_bbox,
     numpy_bbox_to_shapely,
     mean_min_distances,
+    linestring_distance,
 )
 from ..models.trip_dimensions import TripDimensions
 from ..models.trip_segments import (
@@ -432,9 +433,6 @@ def process_trip_segment_dimensions(
         segment_elevation = np.array(
             [e for e in trip_dimensions.elevation[start_idx:end_idx] if e is not None]
         )
-        segment_speed = np.array(
-            [s for s in trip_dimensions.speed[start_idx:end_idx] if s is not None]
-        )
         segment_time = np.array(
             [t for t in trip_dimensions.time[start_idx:end_idx] if t is not None]
         )
@@ -462,6 +460,9 @@ def process_trip_segment_dimensions(
             f"Segment {segment.idx} of trip {trip_dimensions.id}: {len(segment_coords)} coordinates, {len(segment.candidate_highway_indexes)} candidate highways"
         )
 
+        distance_m = linestring_distance(segment_coords)       
+        elapsed_time_secs = int(max(segment_time) - min(segment_time)) if len(segment_time) > 1 else 0
+
         mean_heart_rate = float(np.mean(segment_heart_rate)) if len(segment_heart_rate) > 0 else None
         mean_temperature = float(np.mean(segment_temperature)) if len(segment_temperature) > 0 else None
         mean_cadence = float(np.mean(segment_cadence)) if len(segment_cadence) > 0 else None
@@ -473,8 +474,8 @@ def process_trip_segment_dimensions(
                 elevation_loss_m=0,
                 offset_x=0,
                 offset_y=0,
-                distance_m=0,
-                elapsed_time_secs=0,
+                distance_m=distance_m,
+                elapsed_time_secs=elapsed_time_secs,
                 moving_time_secs=0,
                 matched_highway_idx=best_matched_highway_idx,
                 matched_boundary_idxs=[],
