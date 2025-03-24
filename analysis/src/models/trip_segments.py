@@ -1,6 +1,5 @@
 from typing import List, Optional
 from pydantic import BaseModel
-from .rwgps import ActivityType
 
 
 class TripSegmentIndex(BaseModel):
@@ -35,7 +34,7 @@ class TripSegmentData(BaseModel):
 class TripSegmentDimensions(BaseModel):
     user_id: int
     trip_id: int
-    activity_type: Optional[ActivityType]
+    activity_type: Optional[str]
     elevation_gain_m: List[float]
     elevation_loss_m: List[float]
     offset_x: List[float]
@@ -54,7 +53,7 @@ class TripSegmentDimensions(BaseModel):
 def collect_trip_segment_dimensions(
     user_id: int,
     trip_id: int,
-    activity_type: Optional[ActivityType],
+    activity_type: Optional[str],
     segments: List[TripSegmentData],
 ) -> TripSegmentDimensions:
     """

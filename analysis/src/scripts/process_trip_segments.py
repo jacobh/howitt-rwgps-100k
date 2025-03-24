@@ -20,7 +20,7 @@ from ..models.trip_segments import (
     collect_trip_segment_dimensions,
 )
 from concurrent.futures import ThreadPoolExecutor
-from typing import List, Optional
+from typing import List, Optional, Dict
 import msgpack
 import json
 
@@ -105,6 +105,19 @@ def build_boundary_spatial_index(
     tree = shapely.STRtree(boundaries)
     print(f"STRTree built with {len(tree)} geometries.")
     return tree
+
+
+def load_trip_id_activity_type_map() -> Dict[str, str]:
+    print("Loading trip id activity type map...")
+    with open("../data/rwgps_trips.json", "r") as f:
+        data = json.load(f)
+
+        trip_id_activity_type_map = {}
+        for item in data:
+            if item['type'] == 'trip':
+                trip_id_activity_type_map[item['id']] = item['activity_type']
+        
+        return trip_id_activity_type_map
 
 
 def load_trip_dimensions() -> List[TripDimensions]:
@@ -516,6 +529,7 @@ def process_trip_segment_dimensions(
     trip_dimensions: TripDimensions,
     trip_segments: TripSegmentIndexes,
     highway_coords: np.ndarray,
+    activity_type: Optional[str]
 ) -> TripSegmentDimensions:
     print(f"Processing trip {trip_dimensions.id}")
 
@@ -613,7 +627,7 @@ def process_trip_segment_dimensions(
     return collect_trip_segment_dimensions(
         user_id=trip_dimensions.user_id,
         trip_id=trip_dimensions.id,
-        activity_type=None,
+        activity_type=activity_type,
         segments=segment_data,
     )
 
@@ -625,6 +639,7 @@ def main() -> None:
     highway_tree = get_spatial_index(highway_coords)
     boundary_tree = build_boundary_spatial_index(boundaries)
 
+    trip_id_activity_type_map = load_trip_id_activity_type_map()
     trips = load_trip_dimensions()
 
     trip_segments_list = build_trip_segments_indexes(trips, highway_tree, boundary_tree)
@@ -642,6 +657,7 @@ def main() -> None:
                     trip_dimensions_and_segments[0],
                     trip_dimensions_and_segments[1],
                     highway_coords,
+                    trip_id_activity_type_map.get(trip_dimensions_and_segments[0].id, None),
                 ),
                 zip(trips, trip_segments_list),
             )
